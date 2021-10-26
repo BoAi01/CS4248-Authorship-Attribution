@@ -1,25 +1,22 @@
 # CS4248-Authorship-Attribution
 
-Most dependencies can be installed by 
-
-<code>python -m pip install -r requirements.txt</code>
-
-
-Except some packages that might need manual installation: 
-
-In particular, pytorch needs to be compiled with the correct CUDA version. See [here](https://pytorch.org/). Example for CUDA 11
-
+## Env setup
+PyTorch needs to be compiled with the correct CUDA version. Example for CUDA 11: </p>
 ```conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch ```
+For more info, see  [here](https://pytorch.org/).  </p>
+
+Other dependencies that might need manual installation: 
 ```
 git clone https://github.com/NVIDIA/apex
-  
 pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
-  
-pip install --upgrade tqdm
-
-pip install transformers
-  
-pip install tensorboardX
-  
-pip install simpletransformers
 ```
+
+Install the rest of dependencies via
+```pip install -r requirement.txt```
+
+## Training
+One-time preparation of dataset </p>
+``` python prepare_dataset.py ```
+
+Start training with</p>
+``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']> ```
