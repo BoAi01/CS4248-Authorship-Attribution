@@ -2,16 +2,16 @@
 
 ## Env setup
 PyTorch needs to be compiled with the correct CUDA version. Example for CUDA 11: </p>
-```conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch ```
+```conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch ``` </p>
 For more info, see  [here](https://pytorch.org/).  </p>
 
-Other dependencies that might need manual installation: 
+Manually install APEX: 
 ```
 git clone https://github.com/NVIDIA/apex
 pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
 ```
 
-Install the rest of dependencies via
+Install the rest of dependencies via </p>
 ```pip install -r requirement.txt```
 
 ## Training
