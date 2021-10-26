@@ -527,22 +527,22 @@ def run_iterations(source="enron", recompute=False):
         # TF-IDF + LR
 
         print("#####")
-        # print("Training TF-IDF")
-        #
-        # vectorizer = TfidfVectorizer()  # ngram_range=(1,2), max_features=3000
-        # X_train = vectorizer.fit_transform(nlp_train['content_tfidf'])
-        # X_test = vectorizer.transform(nlp_test['content_tfidf'])
-        #
-        # clf = LogisticRegression(random_state=0).fit(X_train, nlp_train['Target'])
-        # y_pred = clf.predict(X_test)
-        # score_lr = accuracy_score(nlp_test['Target'], y_pred)
-        # f1_lr = f1_score(nlp_test['Target'], y_pred, average="macro")
-        #
-        # if limit < 11:
-        #     plot_confusion_matrix_from_data(nlp_test['Target'], y_pred)
-        #
-        # print("Training done, accuracy is : ", score_lr)
-        # print("Training done, f1-score is : ", f1_lr)
+        print("Training TF-IDF")
+
+        vectorizer = TfidfVectorizer()  # ngram_range=(1,2), max_features=3000
+        X_train = vectorizer.fit_transform(nlp_train['content_tfidf'])
+        X_test = vectorizer.transform(nlp_test['content_tfidf'])
+
+        clf = LogisticRegression(random_state=0).fit(X_train, nlp_train['Target'])
+        y_pred = clf.predict(X_test)
+        score_lr = accuracy_score(nlp_test['Target'], y_pred)
+        f1_lr = f1_score(nlp_test['Target'], y_pred, average="macro")
+
+        if limit < 11:
+            plot_confusion_matrix_from_data(nlp_test['Target'], y_pred)
+
+        print("Training done, accuracy is : ", score_lr)
+        print("Training done, f1-score is : ", f1_lr)
 
         # Bert + Classification Layer
 
