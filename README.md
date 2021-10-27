@@ -12,7 +12,7 @@ pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cud
 ```
 
 Install the rest of dependencies via </p>
-```pip install -r requirement.txt```
+```pip install -r requirements.txt```
 
 ## Training
 One-time preparation of dataset </p>
