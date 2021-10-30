@@ -1,4 +1,5 @@
-import os, gdown
+import gdown
+import os
 
 datasets = {
     'enron.csv': 'https://drive.google.com/uc?id=16Tzx6yxhsLG4gRuviI68cPIM2y3lVtjv&export=download',
