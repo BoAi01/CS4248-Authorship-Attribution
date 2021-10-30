@@ -28,7 +28,7 @@ def train_tf_idf(nlp_train, nlp_test):
     # training setup
     num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, 4
     in_dim, out_dim = train_x.shape[1], test_y.max()+1
-    model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.3)
+    model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.2)
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -41,12 +41,12 @@ def train_tf_idf(nlp_train, nlp_test):
 
     # training loop
     final_test_acc = None
-    pg = tqdm(train_loader, leave=False, total=len(train_loader))
     for epoch in range(num_epochs):
-
         train_acc = AverageMeter()
         train_loss = AverageMeter()
-        for i, (x, y) in enumerate(train_loader):
+
+        pg = tqdm(train_loader, leave=False, total=len(train_loader))
+        for i, (x, y) in enumerate(pg):
             x, y = x.cuda(), y.cuda()
             pred = model(x)
             loss = criterion(pred, y.long())      # target must be of dtype = Long!
@@ -64,15 +64,95 @@ def train_tf_idf(nlp_train, nlp_test):
                 'epoch': '{:03d}'.format(epoch)
             })
 
+        pg = tqdm(test_loader, leave=False, total=len(test_loader))
         with torch.no_grad():
             test_acc = AverageMeter()
-            for i, (x, y) in enumerate(test_loader):
+            for i, (x, y) in enumerate(pg):
                 x, y = x.cuda(), y.cuda()
                 pred = model(x)
                 test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())     # .item() discard gradient
 
                 pg.set_postfix({
-                    'train acc': '{:.6f}'.format(train_acc.avg),
+                    'test acc': '{:.6f}'.format(test_acc.avg),
+                    'epoch': '{:03d}'.format(epoch)
+                })
+
+        scheduler.step()
+
+        print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
+        final_test_acc = test_acc.avg
+
+    return final_test_acc     # return acc, train and test features
+
+
+def train_bert(nlp_train, nlp_test):
+    print("#####")
+    print("Training BERT")
+    from models import BertFeatExtractor, LogisticRegression
+    from dataset import BertDataset
+    from transformers import BertTokenizer, BertModel
+    from models import BertClassifier
+
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+    extractor = BertModel.from_pretrained("bert-base-cased")
+
+    # freeze extractor
+    for param in extractor.parameters():
+        param.requires_grad = False
+
+    train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
+
+    # training setup
+    num_epochs, base_lr, base_bs, ngpus = 3, 1e-4, 64, 4
+    out_dim = max(test_y) + 1
+    model = BertClassifier(extractor, LogisticRegression(768 * 128, 128, out_dim, dropout=0.4))
+    model = nn.DataParallel(model).cuda()
+
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    train_set, test_set = BertDataset(train_x, train_y, tokenizer), BertDataset(test_x, test_y, tokenizer)
+
+    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus,
+                              pin_memory=True)
+    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
+                             pin_memory=True)
+
+    # training loop
+    final_test_acc = None
+    for epoch in range(num_epochs):
+        train_acc = AverageMeter()
+        train_loss = AverageMeter()
+
+        pg = tqdm(train_loader, leave=False, total=len(train_loader))
+        for i, (x1, x2, y) in enumerate(pg):
+            x, y = (x1.cuda(), x2.cuda()), y.cuda()
+            pred = model(x)
+            loss = criterion(pred, y.long())
+            train_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+            train_loss.update(loss.item())
+
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            pg.set_postfix({
+                'train acc': '{:.6f}'.format(train_acc.avg),
+                'train loss': '{:.6f}'.format(train_loss.avg),
+                'epoch': '{:03d}'.format(epoch)
+            })
+
+        pg = tqdm(test_loader, leave=False, total=len(test_loader))
+        with torch.no_grad():
+            test_acc = AverageMeter()
+            for i, (x1, x2, y) in enumerate(pg):
+                x, y = (x1.cuda(), x2.cuda()), y.cuda()
+                pred = model(x)
+                test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+
+                pg.set_postfix({
+                    'test acc': '{:.6f}'.format(test_acc.avg),
                     'epoch': '{:03d}'.format(epoch)
                 })
 
@@ -82,25 +162,6 @@ def train_tf_idf(nlp_train, nlp_test):
         final_test_acc = test_acc.avg
 
     return final_test_acc
-
-def train_bert(nlp_train, nlp_test, nclass, n_gpu=1):
-    print("#####")
-    print("Training BERT")
-
-    model = ClassificationModel('bert', 'bert-base-cased', num_labels=nclass,
-                                args={'reprocess_input_data': True, 'overwrite_output_dir': True,
-                                      'num_train_epochs': 15, 'n_gpu': n_gpu},
-                                use_cuda=True)
-    model.train_model(nlp_train[['content', 'Target']])
-    print(f'\n BERT model uses {n_gpu} GPUs\n')
-
-    predictions, raw_out_test = model.predict(list(nlp_test['content']))
-    score_bert = accuracy_score(predictions, nlp_test['Target'])
-    f1_bert = f1_score(predictions, nlp_test['Target'], average="macro")
-
-    predictions, raw_out_train = model.predict(list(nlp_train['content']))
-
-    return score_bert, predictions, raw_out_train, raw_out_test
 
 
 def train_style_based(nlp_train, nlp_test):
@@ -157,7 +218,7 @@ def run_iterations(source):
     df = load_dataset_dataframe(source)
 
     # list_senders = [5, 10, 25, 50, 75, 100]
-    list_senders = [5]
+    list_senders = [75]
 
     if source == "imdb62":
         list_senders = [62]
@@ -170,12 +231,12 @@ def run_iterations(source):
         # Select top N senders and build Train and Test
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit)
 
-        # TF-IDF + LR
-        score_lr = train_tf_idf(nlp_train, nlp_test)
-        print("Training done, accuracy is : ", score_lr)
+        # # TF-IDF + LR
+        # score_lr = train_tf_idf(nlp_train, nlp_test)
+        # print("Training done, accuracy is : ", score_lr)
 
         # Bert + Classification Layer
-        score_bert, bert_preds, bert_prob_train, bert_prob_out = train_bert(nlp_train, nlp_test, limit)
+        score_bert = train_bert(nlp_train, nlp_test)
         print("Training done, accuracy is : ", score_bert)
 
         # Style-based classifier

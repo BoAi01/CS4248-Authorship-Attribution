@@ -33,7 +33,7 @@ pandarallel.initialize()
 
 if __name__ == '__main__':
     import argparse
-    from utils import run_iterations
+    from train import run_iterations
 
     datasets = ['imdb62', 'enron', 'imdb', 'blog']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
