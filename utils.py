@@ -1,8 +1,11 @@
-# General
+# general
+import os
+from collections import Counter
+import heapq
+
 # Visualization
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
-import nltk
 import numpy as np
 import pandas as pd
 import seaborn as sn
@@ -10,15 +13,16 @@ from matplotlib.collections import QuadMesh
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
-# Feature extraction approach
-from sklearn.feature_extraction.text import TfidfVectorizer
-
+from nltk.util import ngrams
+import nltk
 nltk.download('stopwords')
 nltk.download('punkt')
 
-# Classification
-from sklearn.linear_model import LogisticRegression
+# Feature extraction
+from sklearn.feature_extraction.text import TfidfVectorizer
 
+# Classification
+# from sklearn.linear_model import LogisticRegression
 from simpletransformers.classification import ClassificationModel
 
 # # Parallelize apply on Pandas
@@ -30,12 +34,8 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
 
-import os
+# dataset preparation
 from prepare_dataset import dataset_dir
-
-from nltk.util import ngrams
-from collections import Counter
-import heapq
 
 
 def get_new_fig(fn, figsize=[9, 9]):
@@ -449,141 +449,24 @@ def build_train_test(df, limit):
     return nlp_train, nlp_test, list_bigram, list_trigram
 
 
-def train_tf_idf(nlp_train, nlp_test):
-    print("#####")
-    print("Training TF-IDF")
+class AverageMeter(object):
+    """
+    Computes and stores the average and current value
+    """
 
-    vectorizer = TfidfVectorizer()       # ngram_range=(1,2), max_features=3000
-    X_train = vectorizer.fit_transform(nlp_train['content_tfidf'])
-    X_test = vectorizer.transform(nlp_test['content_tfidf'])
+    def __init__(self):
+        self.reset()
 
-    clf = LogisticRegression(random_state=0).fit(X_train, nlp_train['Target'])
-    y_pred = clf.predict(X_test)
-    score_lr = accuracy_score(nlp_test['Target'], y_pred)
-    f1_lr = f1_score(nlp_test['Target'], y_pred, average="macro")
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-    return score_lr
-
-
-def train_bert(nlp_train, nlp_test, nclass, n_gpu=1):
-    print("#####")
-    print("Training BERT")
-
-    model = ClassificationModel('bert', 'bert-base-cased', num_labels=nclass,
-                                args={'reprocess_input_data': True, 'overwrite_output_dir': True,
-                                      'num_train_epochs': 15, 'n_gpu': n_gpu},
-                                use_cuda=True)
-    model.train_model(nlp_train[['content', 'Target']])
-    print(f'\n BERT model uses {n_gpu} GPUs\n')
-
-    predictions, raw_out_test = model.predict(list(nlp_test['content']))
-    score_bert = accuracy_score(predictions, nlp_test['Target'])
-    f1_bert = f1_score(predictions, nlp_test['Target'], average="macro")
-
-    predictions, raw_out_train = model.predict(list(nlp_train['content']))
-
-    return score_bert, predictions, raw_out_train, raw_out_test
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
-def train_style_based(nlp_train, nlp_test):
-    print("#####")
-    print("Training style classifier")
-
-    X_style_train = nlp_train[
-        ["avg_len", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h",
-         "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w",
-         "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0",
-         "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11",
-         "richness"]]
-    X_style_test = nlp_test[
-        ["avg_len", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h",
-         "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w",
-         "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0",
-         "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11",
-         "richness"]]
-
-    # clf = xgb.XGBClassifier().fit(X_style_train, nlp_train['Target'])
-    clf = LogisticRegression(random_state=0).fit(X_style_train, nlp_train['Target'])
-    y_pred = clf.predict(X_style_test)
-    style_prob_test = clf.predict_proba(X_style_test)
-    style_prob_train = clf.predict_proba(X_style_train)
-    score_style = accuracy_score(nlp_test['Target'], y_pred)
-    f1_style = f1_score(nlp_test['Target'], y_pred, average="macro")
-
-    return score_style, style_prob_train,  style_prob_test
-
-
-def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram):
-    print("#####")
-    print("Character N-gram")
-
-    feats_train = nlp_train['content'].apply(lambda x: find_freq_n_gram_in_txt(x, list_bigram, list_trigram)).values
-    feats_test = nlp_test['content'].apply(lambda x: find_freq_n_gram_in_txt(x, list_bigram, list_trigram)).values
-
-    feats_train = pd.DataFrame(feats_train)[0].apply(lambda x: pd.Series(x))
-    feats_test = pd.DataFrame(feats_test)[0].apply(lambda x: pd.Series(x))
-
-    # clf_char = xgb.XGBClassifier().fit(feats_train, nlp_train['Target'])
-    clf_char = LogisticRegression(random_state=0).fit(feats_train, nlp_train['Target'])
-    y_pred = clf_char.predict(feats_test)
-    char_prob_test = clf_char.predict_proba(feats_test)
-    char_prob_train = clf_char.predict_proba(feats_train)
-
-    score_char = accuracy_score(nlp_test['Target'], y_pred)
-
-    return score_char, char_prob_train, char_prob_test
-
-
-def run_iterations(source):
-    # Load data and remove emails containing the sender's name
-    df = load_dataset_dataframe(source)
-
-    # list_senders = [5, 10, 25, 50, 75, 100]
-    list_senders = [5]
-
-    if source == "imdb62":
-        list_senders = [62]
-
-    # start training
-    list_scores = []
-    for limit in list_senders:
-        print("Number of authors: ", limit)
-
-        # Select top N senders and build Train and Test
-        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit)
-
-        # TF-IDF + LR
-        score_lr = train_tf_idf(nlp_train, nlp_test)
-        print("Training done, accuracy is : ", score_lr)
-
-        # Bert + Classification Layer
-        score_bert, bert_preds, bert_prob_train, bert_prob_out = train_bert(nlp_train, nlp_test, limit)
-        print("Training done, accuracy is : ", score_bert)
-
-        # Style-based classifier
-        score_style, style_prob_train, style_prob_test = train_style_based(nlp_train, nlp_test)
-        score_style = train_style_based(nlp_train, nlp_test)
-        print("Training done, accuracy is : ", score_style)
-
-        # Character N-gram only
-        score_char, char_prob_train, char_prob_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram)
-        print("Training done, accuracy is : ", score_char)
-
-        # BERT + Style + Char N-gram
-        print("#####")
-        print("BERT + Style + Char N-gram")
-
-        ensemble_train_feats = np.concatenate([bert_prob_train, style_prob_train, style_prob_train], axis=1)
-        ensemble_test_feats = np.concatenate([bert_prob_out, style_prob_test, style_prob_test], axis=1)
-        clf = LogisticRegression(random_state=0).fit(ensemble_train_feats, nlp_train['Target'])
-        y_pred = clf.predict(ensemble_test_feats)
-        score_comb_fin = accuracy_score(nlp_test['Target'], y_pred)
-
-        print("Training done, accuracy is : ", score_comb_fin)
-
-        # Store scores
-        list_scores.append([limit, score_lr, score_bert, score_style, score_comb_fin])
-
-    list_scores = np.array(list_scores)
-
-    return list_scores
