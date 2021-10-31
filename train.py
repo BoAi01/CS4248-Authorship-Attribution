@@ -104,12 +104,12 @@ def train_bert(nlp_train, nlp_test):
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus = 3, 1e-4, 64, 4
+    num_epochs, base_lr, base_bs, ngpus = 3, 2e-5, 64, 4
     out_dim = max(test_y) + 1
-    model = BertClassifier(extractor, LogisticRegression(768 * 128, 128, out_dim, dropout=0.4))
+    model = BertClassifier(extractor, LogisticRegression(768 * 128, 128, out_dim, dropout=0.3))
     model = nn.DataParallel(model).cuda()
 
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=5e-5)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     train_set, test_set = BertDataset(train_x, train_y, tokenizer), BertDataset(test_x, test_y, tokenizer)
