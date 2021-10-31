@@ -45,5 +45,5 @@ class BertClassifier(nn.Module):
         # out = self.fc(feature.pooler_output.flatten(1))
         out = self.fc(feature.last_hidden_state.flatten(1))
         if return_feat:
-            return out, feature
+            return out, feature.pooler_output
         return out
