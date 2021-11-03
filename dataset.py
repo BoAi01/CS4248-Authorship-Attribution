@@ -34,3 +34,17 @@ class BertDataset(Dataset):
 
     def __len__(self):
         return len(self.y)
+
+class EnsembleDataset(Dataset):
+    def __init__(self, x_style, x_char, x_bert, y):
+        super(EnsembleDataset, self).__init__()
+        self.x_style = x_style
+        self.x_char = x_char
+        self.x_bert = x_bert
+        self.y = y
+    
+    def __getitem__(self, idx):
+        return self.x_style[idx], self.x_char[idx], torch.tensor(self.x_bert['input_ids'][idx]), torch.tensor(self.x_bert['attention_mask'][idx]), self.y[idx]
+
+    def __len__(self):
+        return len(self.y)

@@ -359,6 +359,11 @@ def return_best_tri_grams(text):
     list_ngrams = heapq.nlargest(100, data.keys(), key=lambda k: data[k])
     return list_ngrams
 
+def get_top_n_of_speaker(num_speakers, num_per_speaker):
+        list_spk = list(pd.DataFrame(df['From'].value_counts()[:num_speakers]).reset_index()['index'])
+        sub_df = df[df['From'].isin(list_spk)]
+        sub_df = sub_df.groupby('From').head(num_per_speaker).reset_index(drop=True)
+        return sub_df
 
 def find_freq_n_gram_in_txt(text, list_bigram, list_trigram):
 
@@ -400,7 +405,24 @@ def load_dataset_dataframe(source):
         df.to_csv(os.path.join(dataset_path, 'full_enron2.csv'))
 
     elif source == "imdb":
-        df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb_feat.csv'), index_col=0)
+        df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb.csv'), index_col=0)
+        print("drop rows!!!!!!!!!!!!!")
+        print(df.shape)
+        for index, row in df.iterrows():
+            # print(row['content'])
+            if len(str(row['content'])) <= 3:
+                df.drop(index, inplace=True)
+                print(index)
+        print("finish drop rows")
+        print(df.shape)
+        df['content_tfidf'] = df['content'].parallel_apply(lambda x: process(x))
+        df[["avg_len", "len_text", "len_words", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d",
+            "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s",
+            "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7",
+            "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9",
+            "f_e_10", "f_e_11", "richness"]] = df['content'].parallel_apply(lambda x: extract_style(x))
+        df.to_csv("full_imdb_feat.csv")
+        #df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb_feat.csv'), index_col=0)
 
     elif source == "imdb62":
         df = pd.read_csv(os.path.join(dataset_dir, "full_imdb62.csv"), index_col=0)
@@ -416,6 +438,8 @@ def build_train_test(df, limit):
     list_spk = list(pd.DataFrame(df['From'].value_counts()[:limit]).reset_index()['index'])
 
     sub_df = df[df['From'].isin(list_spk)]
+    sub_df = sub_df.groupby('From').head(5).reset_index(drop=True)
+
     sub_df = sub_df[
         ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
          "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
@@ -423,6 +447,7 @@ def build_train_test(df, limit):
          "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
          "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"]]
     sub_df = sub_df.dropna()
+    #sub_df = sub_df.sample(500)
 
     text = " ".join(sub_df['content'].values)
     list_bigram = return_best_bi_grams(text)

@@ -9,8 +9,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import NumpyDataset
-from models import LogisticRegression
+from dataset import EnsembleDataset, NumpyDataset
+from models import LogisticRegression, LogisticRegressionWithSoftmax, MLP2Layer, EnsembleClassifier
 from tqdm import tqdm
 import time
 
@@ -263,6 +263,134 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_feat
         return final_test_acc, final_train_preds, final_test_preds, train_x, test_x
     return final_test_acc, final_train_preds, final_test_preds
 
+def train_ensemble(nlp_train, nlp_test, list_bigram, list_trigram, return_features=False):
+    from dataset import BertDataset
+    from transformers import BertTokenizer, BertModel
+    from models import BertClassifier
+    
+    # bert features
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+    extractor = BertModel.from_pretrained("bert-base-cased")
+
+    print("Encode BERT")
+    # # freeze extractor
+    # for param in extractor.parameters():
+    #     param.requires_grad = False
+    train_x_bert = nlp_train['content'].tolist()
+    train_x_bert = tokenizer.batch_encode_plus(
+            train_x_bert,
+            max_length=128,
+            padding=True,
+            truncation=True,
+            return_token_type_ids=False
+        )
+    test_x_bert = nlp_test['content'].tolist()
+    test_x_bert = tokenizer.batch_encode_plus(
+            test_x_bert,
+            max_length=128,
+            padding=True,
+            truncation=True,
+            return_token_type_ids=False
+        )
+    print("Encode BERT DONE")
+
+    # style features
+    X_style_train = nlp_train[
+        ["avg_len", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h",
+         "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w",
+         "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0",
+         "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11",
+         "richness"]]
+    X_style_test = nlp_test[
+        ["avg_len", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h",
+         "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w",
+         "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0",
+         "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11",
+         "richness"]]
+    
+    train_x_style, train_y = X_style_train.to_numpy(), nlp_train['Target'].to_numpy()
+    test_x_style, test_y = X_style_test.to_numpy(), nlp_test['Target'].to_numpy()
+
+    # char features
+    feats_train = nlp_train['content'].apply(lambda x: find_freq_n_gram_in_txt(x, list_bigram, list_trigram)).values
+    feats_test = nlp_test['content'].apply(lambda x: find_freq_n_gram_in_txt(x, list_bigram, list_trigram)).values
+
+    feats_train = pd.DataFrame(feats_train)[0].apply(lambda x: pd.Series(x))
+    feats_test = pd.DataFrame(feats_test)[0].apply(lambda x: pd.Series(x))
+
+    train_x_char = feats_train.to_numpy()
+    test_x_char = feats_test.to_numpy()
+
+    # combine into ensemble
+
+    num_epochs, base_lr, base_bs, ngpus = 20, 5e-4, 64, 1
+    out_dim = max(test_y) + 1
+
+    classifier_style = LogisticRegression(in_dim=53, hid_dim=10, out_dim=out_dim, dropout=0.2)
+    classifier_char = LogisticRegression(in_dim=200, hid_dim=400, out_dim=out_dim, dropout=0.2)
+    classifier_bert = LogisticRegression(in_dim=768 * 128, hid_dim=128, out_dim=out_dim, dropout=0.3)
+    classifier_final = LogisticRegression(98572, 128, out_dim, dropout=0.3)
+    model = EnsembleClassifier(raw_bert=extractor, styleClassifier=classifier_style, charClassifier=classifier_char, bertClassifier=classifier_bert, finalClassifier=classifier_final)
+
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=5e-5)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
+    num_epochs, base_lr, base_bs, ngpus = 20, 5e-3, 32, 1
+
+    ensemble_train_set = EnsembleDataset(train_x_style, train_x_char, train_x_bert, train_y)
+    ensemble_test_set = EnsembleDataset(test_x_style, test_x_char, test_x_bert, test_y)
+    train_loader = DataLoader(ensemble_train_set, batch_size=base_bs*ngpus, shuffle=True, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(ensemble_test_set, batch_size=base_bs*ngpus, shuffle=False, num_workers=0, pin_memory=True)
+
+    model = nn.DataParallel(model).cuda()
+
+    # training loop
+    final_test_acc = None
+    final_train_preds, final_test_preds = None, None
+    train_feats, test_feats = None, None
+
+    for epoch in range(num_epochs):
+        train_acc = AverageMeter()
+        train_loss = AverageMeter()
+
+        pg = tqdm(train_loader, leave=False, total=len(train_loader))
+        for i, (x0, x1, x2, x3, y) in enumerate(pg):
+            x, y = (x0.float().cuda(), x1.float().cuda(), x2.cuda(), x3.cuda()), y.cuda()
+            pred = model(x)
+            loss = criterion(pred, y.long())
+            train_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+            train_loss.update(loss.item())
+
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            pg.set_postfix({
+                'train acc': '{:.6f}'.format(train_acc.avg),
+                'train loss': '{:.6f}'.format(train_loss.avg),
+                'epoch': '{:03d}'.format(epoch)
+            })
+
+        pg = tqdm(test_loader, leave=False, total=len(test_loader))
+        with torch.no_grad():
+            test_acc = AverageMeter()
+            for i, (x0, x1, x2, x3, y) in enumerate(pg):
+                x, y = (x0.float().cuda(), x1.float().cuda(), x2.cuda(), x3.cuda()), y.cuda()
+                pred = model(x)
+                test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+
+                pg.set_postfix({
+                    'test acc': '{:.6f}'.format(test_acc.avg),
+                    'epoch': '{:03d}'.format(epoch)
+                })
+
+        scheduler.step()
+
+        print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
+        final_test_acc = test_acc.avg
+
+    #final_test_acc, final_train_preds, final_test_preds = train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
 def run_iterations(source):
     # Load data and remove emails containing the sender's name
@@ -281,6 +409,8 @@ def run_iterations(source):
 
         # Select top N senders and build Train and Test
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit)
+
+        train_ensemble(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
 
         # TF-IDF + LR
         # score_lr = train_tf_idf(nlp_train, nlp_test)
@@ -335,7 +465,7 @@ def run_iterations(source):
 
         train_y, test_y = nlp_train['Target'].to_numpy(), nlp_test['Target'].to_numpy()
 
-        num_epochs, base_lr, base_bs, ngpus = 100, 5e-4, 32, 1
+        num_epochs, base_lr, base_bs, ngpus = 20, 5e-4, 32, 1
         in_dim, out_dim = ensemble_train_inputs.shape[1], test_y.max()+1
         model = LogisticRegression(in_dim=in_dim, hid_dim=128, out_dim=out_dim, dropout=0.2)
         optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
@@ -347,7 +477,6 @@ def run_iterations(source):
 
         model = nn.DataParallel(model).cuda()
 
-        # this sometimes works and sometimes doesn't, no idea why
         final_test_acc, final_train_preds, final_test_preds = train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
         # ensemble_train_feats = np.concatenate([bert_prob_train, style_prob_train, char_prob_train], axis=1)
