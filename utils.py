@@ -2,6 +2,7 @@
 import os
 from collections import Counter
 import heapq
+import torch
 
 # Visualization
 import matplotlib.font_manager as fm

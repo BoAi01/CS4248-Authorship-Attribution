@@ -14,6 +14,8 @@ from models import LogisticRegression
 from tqdm import tqdm
 import time
 
+ckpt_dir = 'ckpt'
+
 def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5):
     # training loop
     final_test_acc = None
@@ -111,8 +113,10 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     from transformers import BertTokenizer, BertModel
     from models import BertClassifier
 
-    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-    extractor = BertModel.from_pretrained("bert-base-cased")
+    id = 4
+    model_name = 'bert-base-cased'
+    tokenizer = BertTokenizer.from_pretrained(model_name)
+    extractor = BertModel.from_pretrained(model_name)
 
     # freeze extractor
     for param in extractor.parameters():
@@ -122,9 +126,9 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus = 3, 1e-4, 32, torch.cuda.device_count()
-    out_dim = max(test_y) + 1
-    model = BertClassifier(extractor, LogisticRegression(768 * 128, 128, out_dim, dropout=0.3))
+    num_epochs, base_lr, base_bs, ngpus, dropout = 10, 1e-4, 32, torch.cuda.device_count(), 0.5
+    hidden_dim, out_dim = 256, max(test_y) + 1
+    model = BertClassifier(extractor, LogisticRegression(768 * 128, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
 
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
@@ -149,6 +153,7 @@ def train_bert(nlp_train, nlp_test, return_features=True):
         train_acc = AverageMeter()
         train_loss = AverageMeter()
 
+        model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
         for i, (x1, x2, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda()), y.cuda()
@@ -174,13 +179,14 @@ def train_bert(nlp_train, nlp_test, return_features=True):
                 'epoch': '{:03d}'.format(epoch)
             })
 
+        model.eval()
         pg = tqdm(test_loader, leave=False, total=len(test_loader))
         with torch.no_grad():
             test_acc = AverageMeter()
             for i, (x1, x2, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda()), y.cuda()
                 pred = model(x)
-                if epoch == num_epochs - 1: # for feature ensemble prediction
+                if epoch == num_epochs - 1:      # for feature ensemble prediction
                     p, f = model(x, return_feat=True)
                     f = torch.flatten(f.last_hidden_state, start_dim=1)
                     test_feats.append(f.cpu().detach())
@@ -198,14 +204,17 @@ def train_bert(nlp_train, nlp_test, return_features=True):
 
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
+    
+    final_train_preds = torch.cat(final_train_preds, dim=0)
+    final_test_preds = torch.cat(final_test_preds, dim=0)
+
+    # save checkpoint
+    save_model(os.path.join(ckpt_dir, model_name),
+               f'{id}_{out_dim}auth_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}.pt',
+               model)
 
     del model
     del train_loader, test_loader
-
-    # print(f'train feats shape {train_feats.shape}')
-
-    final_train_preds = torch.cat(final_train_preds, dim=0)
-    final_test_preds = torch.cat(final_test_preds, dim=0)
 
     if return_features:
         train_feats = torch.cat(train_feats, dim=0)
@@ -299,8 +308,8 @@ def run_iterations(source):
     df = load_dataset_dataframe(source)
 
     # list_senders = [5, 10, 25, 50, 75, 100]
-    # list_senders = [5]
-    list_senders = [100]
+    list_senders = [5]
+    # list_senders = [100]
 
     if source == "imdb62":
         list_senders = [62]
@@ -318,12 +327,12 @@ def run_iterations(source):
         # print("Training done, accuracy is : ", score_lr)
 
         # Style-based classifier
-        score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
-        print("Training done, accuracy is : ", score_style)
-        print(style_prob_train.shape)
-        print(style_prob_test.shape)
-        print(style_feat_train.shape)
-        print(style_feat_test.shape)
+        # score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
+        # print("Training done, accuracy is : ", score_style)
+        # print(style_prob_train.shape)
+        # print(style_prob_test.shape)
+        # print(style_feat_train.shape)
+        # print(style_feat_test.shape)
 
         # Bert + Classification Layer
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test, return_features=True)
