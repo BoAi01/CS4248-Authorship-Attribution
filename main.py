@@ -26,14 +26,14 @@ nltk.download('punkt')
 
 # # Parallelize apply on Pandas
 # !pip install pandarallel
-from pandarallel import pandarallel
-pandarallel.initialize()
-
 # Evaluation
 
 if __name__ == '__main__':
     import argparse
     from train import run_iterations
+    import os
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2, 3"
 
     datasets = ['imdb62', 'enron', 'imdb', 'blog']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')

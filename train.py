@@ -14,11 +14,17 @@ from models import LogisticRegression
 from tqdm import tqdm
 import time
 
-def train_model(model, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5):
+def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5):
     # training loop
     final_test_acc = None
     final_train_preds, final_test_preds = None, None
+
     for epoch in range(num_epochs):
+        if epoch == num_epochs - 1:
+            ngpus = torch.cuda.device_count()
+            train_loader = DataLoader(train_set, batch_size=32 * ngpus, shuffle=False, num_workers=12 * ngpus,
+                                      pin_memory=True)
+
         train_acc = AverageMeter()
         train_loss = AverageMeter()
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
@@ -34,6 +40,7 @@ def train_model(model, train_loader, test_loader, criterion, scheduler, optimize
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
             pg.set_postfix({
                 'train acc': '{:.6f}'.format(train_acc.avg),
                 'train loss': '{:.6f}'.format(train_loss.avg),
@@ -59,7 +66,9 @@ def train_model(model, train_loader, test_loader, criterion, scheduler, optimize
 
         print(f'epoch {epoch + 1}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
+
     return final_test_acc, final_train_preds, final_test_preds
+
 
 def train_tf_idf(nlp_train, nlp_test):
     print("#####")
@@ -74,23 +83,24 @@ def train_tf_idf(nlp_train, nlp_test):
     test_x, test_y = test_x.toarray(), test_y.to_numpy()
     print(train_x)
     print(train_x.shape)
+
     return 0
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, 4
-    in_dim, out_dim = train_x.shape[1], test_y.max()+1
-    model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.2)
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
-    train_set, test_set = NumpyDataset(train_x, train_y), NumpyDataset(test_x, test_y)
-    train_loader = DataLoader(train_set, batch_size=base_bs*ngpus, shuffle=True, num_workers=12*ngpus, pin_memory=True)
-    test_loader = DataLoader(test_set, batch_size=base_bs*ngpus, shuffle=False, num_workers=12*ngpus, pin_memory=True)
-
-    # load model into multi-gpu
-    model = nn.DataParallel(model).cuda()
-
-    return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer)
+    # num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, torch.cuda.device_count()
+    # in_dim, out_dim = train_x.shape[1], test_y.max()+1
+    # model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.2)
+    # optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
+    # criterion = nn.CrossEntropyLoss()
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    # train_set, test_set = NumpyDataset(train_x, train_y), NumpyDataset(test_x, test_y)
+    # train_loader = DataLoader(train_set, batch_size=base_bs*ngpus, shuffle=True, num_workers=12*ngpus, pin_memory=True)
+    # test_loader = DataLoader(test_set, batch_size=base_bs*ngpus, shuffle=False, num_workers=12*ngpus, pin_memory=True)
+    #
+    # # load model into multi-gpu
+    # model = nn.DataParallel(model).cuda()
+    #
+    # return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
 
 def train_bert(nlp_train, nlp_test, return_features=True):
@@ -112,12 +122,12 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus = 5, 2e-5, 64, 1
+    num_epochs, base_lr, base_bs, ngpus = 3, 1e-4, 32, torch.cuda.device_count()
     out_dim = max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(768 * 128, 128, out_dim, dropout=0.3))
     model = nn.DataParallel(model).cuda()
 
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=5e-5)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     train_set, test_set = BertDataset(train_x, train_y, tokenizer), BertDataset(test_x, test_y, tokenizer)
@@ -129,10 +139,13 @@ def train_bert(nlp_train, nlp_test, return_features=True):
 
     # training loop
     final_test_acc = None
-    final_train_preds, final_test_preds = None, None
-    train_feats, test_feats = None, None
+    final_train_preds, final_test_preds = [], []
+    train_feats, test_feats = [], []
 
     for epoch in range(num_epochs):
+        if epoch == num_epochs - 1:
+            train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
+                                      pin_memory=True)
         train_acc = AverageMeter()
         train_loss = AverageMeter()
 
@@ -140,11 +153,13 @@ def train_bert(nlp_train, nlp_test, return_features=True):
         for i, (x1, x2, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda()), y.cuda()
             pred = model(x)
-            if epoch == num_epochs - 1: # for feature ensemble prediction
+            if epoch == num_epochs - 1:     # for feature ensemble prediction
                 p, f = model(x, return_feat=True)
                 f = torch.flatten(f.last_hidden_state, start_dim=1)
-                train_feats = f if (train_feats == None) else torch.cat((train_feats, f), 0)
-                final_train_preds = p if (final_train_preds == None) else torch.cat((final_train_preds, p), 0)
+                train_feats.append(f.cpu().detach())
+                final_train_preds.append(p.cpu().detach())
+                # train_feats = f if (train_feats == None) else torch.cat((train_feats, f.detach()), 0)
+                # final_train_preds = p if (final_train_preds == None) else torch.cat((final_train_preds, p.detach()), 0)
             loss = criterion(pred, y.long())
             train_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
             train_loss.update(loss.item())
@@ -168,8 +183,10 @@ def train_bert(nlp_train, nlp_test, return_features=True):
                 if epoch == num_epochs - 1: # for feature ensemble prediction
                     p, f = model(x, return_feat=True)
                     f = torch.flatten(f.last_hidden_state, start_dim=1)
-                    test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
-                    final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
+                    test_feats.append(f.cpu().detach())
+                    final_test_preds.append(p.cpu().detach())
+                    # test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
+                    # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
                 test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
 
                 pg.set_postfix({
@@ -182,9 +199,19 @@ def train_bert(nlp_train, nlp_test, return_features=True):
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
-    print(train_feats.shape)
+    del model
+    del train_loader, test_loader
+
+    # print(f'train feats shape {train_feats.shape}')
+
+    final_train_preds = torch.cat(final_train_preds, dim=0)
+    final_test_preds = torch.cat(final_test_preds, dim=0)
+
     if return_features:
+        train_feats = torch.cat(train_feats, dim=0)
+        test_feats = torch.cat(test_feats, dim=0)
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
+
     return final_test_acc, final_train_preds, final_test_preds
 
 
@@ -207,9 +234,9 @@ def train_style_based(nlp_train, nlp_test, return_features=False):
     
     train_x, train_y = X_style_train.to_numpy(), nlp_train['Target'].to_numpy()
     test_x, test_y = X_style_test.to_numpy(), nlp_test['Target'].to_numpy()
-    num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, 1
+    num_epochs, base_lr, base_bs, ngpus = 20, 5e-2, 32, torch.cuda.device_count()
     in_dim, out_dim = train_x.shape[1], test_y.max()+1
-    model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.2)
+    model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 3, out_dim=out_dim, dropout=0.3)
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -219,7 +246,7 @@ def train_style_based(nlp_train, nlp_test, return_features=False):
 
     model = nn.DataParallel(model).cuda()
 
-    score_style, style_prob_train, style_prob_test = train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer)
+    score_style, style_prob_train, style_prob_test = train_model(model, train_set, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
     del model
     del train_loader, test_loader
@@ -241,9 +268,9 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_feat
 
     train_x, train_y = feats_train.to_numpy(), nlp_train['Target'].to_numpy()
     test_x, test_y = feats_test.to_numpy(), nlp_test['Target'].to_numpy()
-    num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, 1
+    num_epochs, base_lr, base_bs, ngpus = 20, 5e-2, 32, torch.cuda.device_count()
     in_dim, out_dim = train_x.shape[1], test_y.max()+1
-    model = LogisticRegression(in_dim=in_dim, hid_dim=in_dim * 2, out_dim=out_dim, dropout=0.2)
+    model = LogisticRegression(in_dim=in_dim, hid_dim=in_dim * 3, out_dim=out_dim, dropout=0.3)
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -254,13 +281,16 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_feat
     model = nn.DataParallel(model).cuda()
 
     # this sometimes works and sometimes doesn't, no idea why
-    final_test_acc, final_train_preds, final_test_preds = train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer)
-    
+    final_test_acc, final_train_preds, final_test_preds = train_model(model, train_set, train_loader=train_loader,
+                                                                      test_loader=test_loader, criterion=criterion,
+                                                                      scheduler=scheduler, optimizer=optimizer,
+                                                                      num_epochs=num_epochs)
     del model
     del train_loader, test_loader
 
     if return_features:
         return final_test_acc, final_train_preds, final_test_preds, train_x, test_x
+
     return final_test_acc, final_train_preds, final_test_preds
 
 
@@ -269,7 +299,8 @@ def run_iterations(source):
     df = load_dataset_dataframe(source)
 
     # list_senders = [5, 10, 25, 50, 75, 100]
-    list_senders = [5]
+    # list_senders = [5]
+    list_senders = [100]
 
     if source == "imdb62":
         list_senders = [62]
@@ -286,7 +317,7 @@ def run_iterations(source):
         # score_lr = train_tf_idf(nlp_train, nlp_test)
         # print("Training done, accuracy is : ", score_lr)
 
-        # # Style-based classifier
+        # Style-based classifier
         score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
         print("Training done, accuracy is : ", score_style)
         print(style_prob_train.shape)
@@ -330,14 +361,16 @@ def run_iterations(source):
         ensemble_train_inputs = np.concatenate([bert_prob_train, bert_feat_train, style_prob_train, style_feat_train, char_prob_train, char_feat_train], axis=1)
         ensemble_test_inputs = np.concatenate([bert_prob_test, bert_feat_test, style_prob_test, style_feat_test, char_prob_test, char_feat_test], axis=1)
 
+
+
         print(ensemble_train_inputs.shape)
         print(ensemble_test_inputs.shape)
 
         train_y, test_y = nlp_train['Target'].to_numpy(), nlp_test['Target'].to_numpy()
 
-        num_epochs, base_lr, base_bs, ngpus = 100, 5e-4, 32, 1
+        num_epochs, base_lr, base_bs, ngpus = 20, 5e-2, 32, torch.cuda.device_count()
         in_dim, out_dim = ensemble_train_inputs.shape[1], test_y.max()+1
-        model = LogisticRegression(in_dim=in_dim, hid_dim=128, out_dim=out_dim, dropout=0.2)
+        model = LogisticRegression(in_dim=in_dim, hid_dim=128, out_dim=out_dim, dropout=0.3)
         optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
         criterion = nn.CrossEntropyLoss()
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -348,7 +381,7 @@ def run_iterations(source):
         model = nn.DataParallel(model).cuda()
 
         # this sometimes works and sometimes doesn't, no idea why
-        final_test_acc, final_train_preds, final_test_preds = train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
+        final_test_acc, final_train_preds, final_test_preds = train_model(model, train_set, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
         # ensemble_train_feats = np.concatenate([bert_prob_train, style_prob_train, char_prob_train], axis=1)
         # ensemble_test_feats = np.concatenate([bert_prob_test, style_prob_test, char_prob_test], axis=1)

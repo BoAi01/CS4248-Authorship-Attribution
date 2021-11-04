@@ -25,10 +25,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 # from sklearn.linear_model import LogisticRegression
 from simpletransformers.classification import ClassificationModel
 
-# # Parallelize apply on Pandas
-from pandarallel import pandarallel
-pandarallel.initialize()
-
 # Evaluation
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
@@ -400,7 +396,31 @@ def load_dataset_dataframe(source):
         df.to_csv(os.path.join(dataset_path, 'full_enron2.csv'))
 
     elif source == "imdb":
-        df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb_feat.csv'), index_col=0)
+        feat_path = os.path.join(dataset_dir, "full_imdb_feat.csv")
+        if os.path.isfile(feat_path):
+            df = pd.read_csv("full_imdb_feat.csv", index_col=0)
+        else:
+            # # Parallelize apply on Pandas
+            from pandarallel import pandarallel
+            pandarallel.initialize()
+
+            df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb.csv'), index_col=0)
+            print("drop rows!!!!!!!!!!!!!")
+            drop_count = 0
+            for index, row in df.iterrows():
+                # print(row['content'])
+                if len(str(row['content'])) <= 3:
+                    df.drop(index, inplace=True)
+                    drop_count += 1
+            print(f"dropped {drop_count} rows")
+            print(df.shape)
+            df['content_tfidf'] = df['content'].parallel_apply(lambda x: process(x))
+            df[["avg_len", "len_text", "len_words", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d",
+                "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s",
+                "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7",
+                "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9",
+                "f_e_10", "f_e_11", "richness"]] = df['content'].parallel_apply(lambda x: extract_style(x))
+            df.to_csv(feat_path)
 
     elif source == "imdb62":
         df = pd.read_csv(os.path.join(dataset_dir, "full_imdb62.csv"), index_col=0)
@@ -468,5 +488,3 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
