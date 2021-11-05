@@ -22,10 +22,6 @@ nltk.download('punkt')
 # Feature extraction
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-# Classification
-# from sklearn.linear_model import LogisticRegression
-from simpletransformers.classification import ClassificationModel
-
 # Evaluation
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score

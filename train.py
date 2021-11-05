@@ -113,16 +113,24 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     from dataset import BertDataset
     from models import BertClassifier
 
-    id = 15
-    model_name = 'bert-base-uncased'
+    id = 18
+    model_name, embed_len = 'bert-base-uncased', 768
     from transformers import BertTokenizer, BertModel
-    tokenizer = BertTokenizer.from_pretrained(model_name)
-    extractor = BertModel.from_pretrained(model_name)
+    # tokenizer = BertTokenizer.from_pretrained(model_name)
+    # extractor = BertModel.from_pretrained(model_name)
+
 
     from transformers import DebertaTokenizer, DebertaModel
-    model_name = 'microsoft/deberta-large'
-    # tokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta-large')
-    # extractor = DebertaModel.from_pretrained('microsoft/deberta-large')
+    model_name, embed_len = 'microsoft/deberta-base', 768
+    tokenizer = DebertaTokenizer.from_pretrained(model_name)
+    extractor = DebertaModel.from_pretrained(model_name)
+
+    from transformers import GPT2Tokenizer, GPT2Model
+    import torch
+    # model_name, embed_len = 'gpt2', 768
+    # tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+    # extractor = GPT2Model.from_pretrained(model_name)
+    # tokenizer.pad_token = tokenizer.eos_token       # for gpt tokenizer only
 
     # freeze extractor
     for param in extractor.parameters():
@@ -132,9 +140,9 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 3, 1e-5, 8, torch.cuda.device_count(), 0.3
+    num_epochs, base_lr, base_bs, ngpus, dropout = 2, 1e-5, 8, torch.cuda.device_count(), 0.3
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
-    model = BertClassifier(extractor, LogisticRegression(768 * num_tokens, hidden_dim, out_dim, dropout=dropout))
+    model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
 
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
@@ -165,15 +173,15 @@ def train_bert(nlp_train, nlp_test, return_features=True):
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred = model(x)
-            if epoch == num_epochs - 1:  # for feature ensemble prediction
-                p, f = model(x, return_feat=True)
-                f = torch.flatten(f.last_hidden_state, start_dim=1)
-                train_feats.append(f.cpu().detach())
-                final_train_preds.append(p.cpu().detach())
+            # if epoch == num_epochs - 1:  # for feature ensemble prediction
+            #     p, f = model(x, return_feat=True)
+            #     f = torch.flatten(f.last_hidden_state, start_dim=1)
+            #     train_feats.append(f.cpu().detach())
+            #     final_train_preds.append(p.cpu().detach())
                 # train_feats = f if (train_feats == None) else torch.cat((train_feats, f.detach()), 0)
                 # final_train_preds = p if (final_train_preds == None) else torch.cat((final_train_preds, p.detach()), 0)
             loss = criterion(pred, y.long())
-            train_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+            train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
 
             loss.backward()
@@ -193,14 +201,14 @@ def train_bert(nlp_train, nlp_test, return_features=True):
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
                 pred = model(x)
-                if epoch == num_epochs - 1:  # for feature ensemble prediction
-                    p, f = model(x, return_feat=True)
-                    f = torch.flatten(f.last_hidden_state, start_dim=1)
-                    test_feats.append(f.cpu().detach())
-                    final_test_preds.append(p.cpu().detach())
+                # if epoch == num_epochs - 1:  # for feature ensemble prediction
+                #     p, f = model(x, return_feat=True)
+                #     f = torch.flatten(f.last_hidden_state, start_dim=1)
+                #     test_feats.append(f.cpu().detach())
+                #     final_test_preds.append(p.cpu().detach())
                     # test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
                     # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
-                test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
 
                 pg.set_postfix({
                     'test acc': '{:.6f}'.format(test_acc.avg),
@@ -212,13 +220,13 @@ def train_bert(nlp_train, nlp_test, return_features=True):
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
-    final_train_preds = torch.cat(final_train_preds, dim=0)
-    final_test_preds = torch.cat(final_test_preds, dim=0)
-
     # save checkpoint
     save_model(os.path.join(ckpt_dir, model_name),
                f'{id}_{out_dim}auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}.pt',
                model)
+
+    final_train_preds = torch.cat(final_train_preds, dim=0)
+    final_test_preds = torch.cat(final_test_preds, dim=0)
 
     del model
     del train_loader, test_loader
