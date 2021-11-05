@@ -125,7 +125,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
     id = 18
 
     tokenizer, extractor = None, None
-    if bert_name == 'bert-base-uncased' or 'bert-base-cased':
+    if bert_name == 'bert-base-uncased' or bert_name == 'bert-base-cased':
         from transformers import BertTokenizer, BertModel
         tokenizer = BertTokenizer.from_pretrained(model_name)
         extractor = BertModel.from_pretrained(model_name)
