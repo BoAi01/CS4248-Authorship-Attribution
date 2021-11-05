@@ -380,9 +380,9 @@ def load_dataset_dataframe(source):
         "imdb62": 'full_imdb62.csv',
         "blog": 'full_blog.csv',
     }
-    df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
 
     if source == "enron":
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
         df['name'] = df['From'].apply(lambda x: x.split("'")[1].split(".")[0])
         df['name_in_mail'] = df.apply(lambda x: is_name_in_email(x['name'], x['content']), axis=1)
         df = df[df['name_in_mail'] == 0]
@@ -420,10 +420,11 @@ def load_dataset_dataframe(source):
             df.to_csv(feat_path)
 
     elif source == "imdb62":
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
         df = pd.read_csv(os.path.join(dataset_dir, "full_imdb62.csv"), index_col=0)
 
     elif source == "blog":
-        df = pd.read_csv(os.path.join(dataset_dir, 'full_blog.csv'))
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
 
     return df
 
