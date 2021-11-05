@@ -19,6 +19,7 @@ class LogisticRegression(nn.Module):
     def forward(self, x):
         return self.nn(x)
 
+
 class LogisticRegressionWithSoftmax(nn.Module):
     def __init__(self, in_dim, hid_dim, out_dim, dropout=0):
         super().__init__()
@@ -35,6 +36,7 @@ class LogisticRegressionWithSoftmax(nn.Module):
 
     def forward(self, x):
         return self.nn(x)
+
 
 class MLP2Layer(nn.Module):
     def __init__(self, in_dim, hid_dim, out_dim, dropout=0):
@@ -79,12 +81,13 @@ class BertClassifier(nn.Module):
 
     def forward(self, x, return_feat=False):
         # x is a tokenized input
-        feature = self.bert(x[0], x[1])
+        feature = self.bert(x[0], x[2])
         # out = self.fc(feature.pooler_output.flatten(1))
         out = self.fc(feature.last_hidden_state.flatten(1))
         if return_feat:
             return out, feature
         return out
+
 
 class EnsembleClassifier(nn.Module):
     FEAT_LEN = 768

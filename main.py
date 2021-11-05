@@ -32,8 +32,10 @@ if __name__ == '__main__':
     import argparse
     from train import run_iterations
     import os
+    import torch
+    torch.manual_seed(0)
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2, 3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
 
     datasets = ['imdb62', 'enron', 'imdb', 'blog']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
