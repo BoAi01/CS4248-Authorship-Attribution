@@ -381,6 +381,8 @@ def load_dataset_dataframe(source):
         "blog": 'full_blog.csv',
     }
 
+    df = None
+
     if source == "enron":
         df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
         df['name'] = df['From'].apply(lambda x: x.split("'")[1].split(".")[0])
@@ -395,7 +397,7 @@ def load_dataset_dataframe(source):
     elif source == "imdb":
         feat_path = os.path.join(dataset_dir, "full_imdb_feat.csv")
         if os.path.isfile(feat_path):
-            df = pd.read_csv("full_imdb_feat.csv", index_col=0)
+            df = pd.read_csv(feat_path, index_col=0)
         else:
             # # Parallelize apply on Pandas
             from pandarallel import pandarallel
