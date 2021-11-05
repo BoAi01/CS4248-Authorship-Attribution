@@ -17,10 +17,14 @@ import time
 ckpt_dir = 'ckpt'
 
 
-def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5):
-    # training loop
+def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5,
+                ckpt_name=None):
+    """
+    A training loop implementation suitable for most models
+    """
+
     final_test_acc = None
-    final_train_preds, final_test_preds = None, None
+    final_train_preds, final_test_preds = [], []
 
     for epoch in range(num_epochs):
         if epoch == num_epochs - 1:
@@ -28,16 +32,15 @@ def train_model(model, train_set, train_loader, test_loader, criterion, schedule
             train_loader = DataLoader(train_set, batch_size=32 * ngpus, shuffle=False, num_workers=12 * ngpus,
                                       pin_memory=True)
 
-        train_acc = AverageMeter()
-        train_loss = AverageMeter()
+        train_acc, train_loss = AverageMeter(), AverageMeter()
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
         for i, (x, y) in enumerate(pg):
             x, y = x.cuda(), y.cuda()
             pred = model(x)
             if epoch == num_epochs - 1:  # for feature ensemble prediction
-                final_train_preds = pred if final_train_preds == None else torch.cat((final_train_preds, pred), 0)
+                final_train_preds.append(pred.cpu().detach())
             loss = criterion(pred, y.long())  # target must be of dtype = Long!
-            train_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())  # .item() discard gradient
+            train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
 
             loss.backward()
@@ -51,14 +54,14 @@ def train_model(model, train_set, train_loader, test_loader, criterion, schedule
             })
 
         pg = tqdm(test_loader, leave=False, total=len(test_loader))
+        test_acc = AverageMeter()
         with torch.no_grad():
-            test_acc = AverageMeter()
             for i, (x, y) in enumerate(pg):
                 x, y = x.cuda(), y.cuda()
                 pred = model(x)
                 if epoch == num_epochs - 1:  # for feature ensemble prediction
-                    final_test_preds = pred if final_test_preds == None else torch.cat((final_test_preds, pred), 0)
-                test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())  # .item() discard gradient
+                    final_test_preds.append(pred.cpu().detach())
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
 
                 pg.set_postfix({
                     'test acc': '{:.6f}'.format(test_acc.avg),
@@ -69,6 +72,12 @@ def train_model(model, train_set, train_loader, test_loader, criterion, schedule
 
         print(f'epoch {epoch + 1}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
+
+    # save checkpoint
+    if ckpt_name:
+        save_model(os.path.join(ckpt_dir, model_name), ckpt_name, model)
+
+    final_train_preds, final_test_preds = torch.cat(final_train_preds, dim=0), torch.cat(final_test_preds, dim=0)
 
     return final_test_acc, final_train_preds, final_test_preds
 
@@ -106,31 +115,31 @@ def train_tf_idf(nlp_train, nlp_test):
     # return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
 
-def train_bert(nlp_train, nlp_test, return_features=True):
+def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/deberta-base', embed_len=768):
     print("#####")
     print("Training BERT")
-    from models import BertFeatExtractor, LogisticRegression
+    from models import LogisticRegression
     from dataset import BertDataset
     from models import BertClassifier
 
     id = 18
-    model_name, embed_len = 'bert-base-uncased', 768
-    from transformers import BertTokenizer, BertModel
-    # tokenizer = BertTokenizer.from_pretrained(model_name)
-    # extractor = BertModel.from_pretrained(model_name)
 
-
-    from transformers import DebertaTokenizer, DebertaModel
-    model_name, embed_len = 'microsoft/deberta-base', 768
-    tokenizer = DebertaTokenizer.from_pretrained(model_name)
-    extractor = DebertaModel.from_pretrained(model_name)
-
-    from transformers import GPT2Tokenizer, GPT2Model
-    import torch
-    # model_name, embed_len = 'gpt2', 768
-    # tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-    # extractor = GPT2Model.from_pretrained(model_name)
-    # tokenizer.pad_token = tokenizer.eos_token       # for gpt tokenizer only
+    tokenizer, extractor = None, None
+    if bert_name == 'bert-base-uncased' or 'bert-base-cased':
+        from transformers import BertTokenizer, BertModel
+        tokenizer = BertTokenizer.from_pretrained(model_name)
+        extractor = BertModel.from_pretrained(model_name)
+    elif 'deberta' in bert_name:
+        from transformers import DebertaTokenizer, DebertaModel
+        tokenizer = DebertaTokenizer.from_pretrained(model_name)
+        extractor = DebertaModel.from_pretrained(model_name)
+    elif 'gpt2' in bert_name:
+        from transformers import GPT2Tokenizer, GPT2Model
+        tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+        extractor = GPT2Model.from_pretrained(model_name)
+        tokenizer.pad_token = tokenizer.eos_token  # for gpt tokenizer only
+    else:
+        raise NotImplementedError(f"model {bert_name} not implemented")
 
     # freeze extractor
     for param in extractor.parameters():
@@ -140,7 +149,7 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 2, 1e-5, 8, torch.cuda.device_count(), 0.3
+    num_epochs, base_lr, base_bs, ngpus, dropout = 3, 1e-5, 8, torch.cuda.device_count(), 0.3
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -232,8 +241,8 @@ def train_bert(nlp_train, nlp_test, return_features=True):
     del train_loader, test_loader
 
     if return_features:
-        train_feats = torch.cat(train_feats, dim=0)
-        test_feats = torch.cat(test_feats, dim=0)
+        # train_feats = torch.cat(train_feats, dim=0)
+        # test_feats = torch.cat(test_feats, dim=0)
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
 
     return final_test_acc, final_train_preds, final_test_preds
@@ -425,3 +434,4 @@ def run_iterations(source):
     # list_scores = np.array(list_scores)
     #
     # return list_scores
+
