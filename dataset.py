@@ -20,20 +20,30 @@ class BertDataset(Dataset):
         super(BertDataset, self).__init__()
         self.tokenizer = tokenizer
         self.length = length
-        self.x = tokenizer.batch_encode_plus(
-            x,
-            max_length=length,
-            padding=True,
-            truncation=True,
-            return_token_type_ids=False
-        )
+        self.x = x
         self.y = torch.tensor(y)
+        self.tokens_cache = {}
+
+    def tokenize(self, x):
+        dic = self.tokenizer.batch_encode_plus(
+                    [x],        # input must be a list
+                    max_length=self.length,
+                    padding='max_length',
+                    truncation=True,
+                    return_token_type_ids=True,
+                    return_tensors="pt"
+                )
+        return [x[0] for x in dic.values()]     # get rid of the first dim
 
     def __getitem__(self, idx):
-        return torch.tensor(self.x['input_ids'][idx]), torch.tensor(self.x['attention_mask'][idx]), self.y[idx]
+        if idx not in self.tokens_cache:
+            self.tokens_cache[idx] = self.tokenize(self.x[idx])
+        input_ids, token_type_ids, attention_mask = self.tokens_cache[idx]
+        return input_ids, token_type_ids, attention_mask, self.y[idx]
 
     def __len__(self):
         return len(self.y)
+
 
 class EnsembleDataset(Dataset):
     def __init__(self, x_style, x_char, x_bert, y):
