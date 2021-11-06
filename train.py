@@ -122,7 +122,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     from dataset import BertDataset
     from models import BertClassifier
 
-    id = 22
+    id = 23
 
     tokenizer, extractor = None, None
     if 'bert-base' in model_name:
@@ -133,11 +133,21 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         from transformers import DebertaTokenizer, DebertaModel
         tokenizer = DebertaTokenizer.from_pretrained(model_name)
         extractor = DebertaModel.from_pretrained(model_name)
+    elif 'roberta' in model_name:      # roberta-base
+        from transformers import RobertaTokenizer, RobertaModel
+        tokenizer = RobertaTokenizer.from_pretrained(model_name)
+        extractor = RobertaModel.from_pretrained(model_name)
     elif 'gpt2' in model_name:
         from transformers import GPT2Tokenizer, GPT2Model
         tokenizer = GPT2Tokenizer.from_pretrained(model_name)
         extractor = GPT2Model.from_pretrained(model_name)
         tokenizer.pad_token = tokenizer.eos_token  # for gpt tokenizer only
+    elif 'gpt' in model_name:       # 'openai-gpt'
+        from transformers import OpenAIGPTTokenizer, OpenAIGPTModel
+        tokenizer = OpenAIGPTTokenizer.from_pretrained(model_name)
+        extractor = OpenAIGPTModel.from_pretrained(model_name)
+        tokenizer.pad_token = tokenizer.unk_token  # for gpt tokenizer only
+        print(f'pad token {tokenizer.unk_token}')
     else:
         raise NotImplementedError(f"model {model_name} not implemented")
 
@@ -362,7 +372,8 @@ def run_iterations(source):
 
         # Bert + Classification Layer
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
-                                                                                                  return_features=True)
+                                                                                                  return_features=True,
+                                                                                                  model_name='roberta-base')
         print("Training done, accuracy is : ", score_bert)
         accs.append(score_bert)
         # print(bert_prob_train.shape)
