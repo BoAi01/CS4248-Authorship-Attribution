@@ -115,7 +115,7 @@ def train_tf_idf(nlp_train, nlp_test):
     # return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
 
-def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/deberta-base', embed_len=768):
+def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/deberta-base', embed_len=768, num_epochs=5, base_lr=1e-5, dropout=0.3, n_authors=5):
     print("#####")
     print("Training BERT")
     from models import LogisticRegression
@@ -125,18 +125,18 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
     id = 18
 
     tokenizer, extractor = None, None
-    if bert_name == 'bert-base-uncased' or 'bert-base-cased':
+    if bert_name == 'bert-base-uncased' or bert_name == 'bert-base-cased':
         from transformers import BertTokenizer, BertModel
-        tokenizer = BertTokenizer.from_pretrained(model_name)
-        extractor = BertModel.from_pretrained(model_name)
+        tokenizer = BertTokenizer.from_pretrained(bert_name)
+        extractor = BertModel.from_pretrained(bert_name)
     elif 'deberta' in bert_name:
         from transformers import DebertaTokenizer, DebertaModel
-        tokenizer = DebertaTokenizer.from_pretrained(model_name)
-        extractor = DebertaModel.from_pretrained(model_name)
+        tokenizer = DebertaTokenizer.from_pretrained(bert_name)
+        extractor = DebertaModel.from_pretrained(bert_name)
     elif 'gpt2' in bert_name:
         from transformers import GPT2Tokenizer, GPT2Model
-        tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-        extractor = GPT2Model.from_pretrained(model_name)
+        tokenizer = GPT2Tokenizer.from_pretrained(bert_name)
+        extractor = GPT2Model.from_pretrained(bert_name)
         tokenizer.pad_token = tokenizer.eos_token  # for gpt tokenizer only
     else:
         raise NotImplementedError(f"model {bert_name} not implemented")
@@ -149,7 +149,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 3, 1e-5, 8, torch.cuda.device_count(), 0.3
+    base_bs, ngpus = 8, torch.cuda.device_count()
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -182,11 +182,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred = model(x)
-            # if epoch == num_epochs - 1:  # for feature ensemble prediction
-            #     p, f = model(x, return_feat=True)
-            #     f = torch.flatten(f.last_hidden_state, start_dim=1)
-            #     train_feats.append(f.cpu().detach())
-            #     final_train_preds.append(p.cpu().detach())
+            if epoch == num_epochs - 1:  # for feature ensemble prediction
+                p, f = model(x, return_feat=True)
+                f = torch.flatten(f.last_hidden_state, start_dim=1)
+                train_feats.append(f.cpu().detach())
+                final_train_preds.append(p.cpu().detach())
                 # train_feats = f if (train_feats == None) else torch.cat((train_feats, f.detach()), 0)
                 # final_train_preds = p if (final_train_preds == None) else torch.cat((final_train_preds, p.detach()), 0)
             loss = criterion(pred, y.long())
@@ -210,11 +210,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
                 pred = model(x)
-                # if epoch == num_epochs - 1:  # for feature ensemble prediction
-                #     p, f = model(x, return_feat=True)
-                #     f = torch.flatten(f.last_hidden_state, start_dim=1)
-                #     test_feats.append(f.cpu().detach())
-                #     final_test_preds.append(p.cpu().detach())
+                if epoch == num_epochs - 1:  # for feature ensemble prediction
+                    p, f = model(x, return_feat=True)
+                    f = torch.flatten(f.last_hidden_state, start_dim=1)
+                    test_feats.append(f.cpu().detach())
+                    final_test_preds.append(p.cpu().detach())
                     # test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
                     # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
                 test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
@@ -230,9 +230,13 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
         final_test_acc = test_acc.avg
 
     # save checkpoint
-    save_model(os.path.join(ckpt_dir, model_name),
+    save_model(os.path.join(ckpt_dir, bert_name),
                f'{id}_{out_dim}auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}.pt',
                model)
+    
+    outfile = open('GPT2 tuning.csv', 'a')
+    outfile.write(f'{str(n_authors)},{str(num_epochs)},{str(base_lr)},{str(dropout)},{train_acc.avg},{test_acc.avg}\n')
+    outfile.close()
 
     final_train_preds = torch.cat(final_train_preds, dim=0)
     final_test_preds = torch.cat(final_test_preds, dim=0)
@@ -334,12 +338,14 @@ def run_iterations(source):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    # list_senders = [5, 10, 25, 50, 75, 100]
-    list_senders = [100]
+    list_senders = [25]
     # list_senders = [100]
 
     if source == "imdb62":
         list_senders = [62]
+
+    lrs = [1e-4, 1e-5]
+    dropouts = [0.35]
 
     # start training
     list_scores = []
@@ -362,13 +368,16 @@ def run_iterations(source):
         # print(style_feat_test.shape)
 
         # Bert + Classification Layer
-        score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
-                                                                                                  return_features=True)
+        for dropout in dropouts:
+            for lr in lrs:
+                score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
+                                                                                                  return_features=True,
+                                                                                                  bert_name="gpt2",
+                                                                                                  num_epochs=5,
+                                                                                                  dropout=dropout,
+                                                                                                  base_lr=lr,
+                                                                                                  n_authors=limit)
         print("Training done, accuracy is : ", score_bert)
-        print(bert_prob_train.shape)
-        print(bert_prob_test.shape)
-        print(bert_feat_train.shape)
-        print(bert_feat_test.shape)
 
         # # Character N-gram only
     #     score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
