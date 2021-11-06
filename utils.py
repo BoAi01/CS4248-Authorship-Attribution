@@ -459,7 +459,7 @@ def build_train_test(df, limit):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'])
+    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=0)
     ind_train = list(ind[0].index)
     ind_test = list(ind[1].index)
 
