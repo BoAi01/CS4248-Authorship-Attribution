@@ -75,6 +75,29 @@ class SimpleEnsemble(nn.Module):
         return sum(preds) / len(preds)
 
 
+class FixedWeightEnsemble(nn.Module):
+    """
+    Learn a fixed set of weights
+    """
+
+    def __init__(self, components):
+        self.weights = nn.Linear(1, len(components), bias=False)
+
+    def forward(self, inputs):
+        assert len(self.components) == len(inputs)
+
+        preds = []
+        for model, input in zip(self.components, inputs):
+            pred, _ = model(input)
+            preds.append(pred)
+
+        weights = self.weights(1)
+        for i, weight in enumerate(weights):
+            preds[i] = preds[i] * weight
+
+        return sum(preds)
+
+
 class DynamicWeightEnsemble(nn.Module):
     """
     Learn the dynamic weights for different components
