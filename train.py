@@ -115,31 +115,31 @@ def train_tf_idf(nlp_train, nlp_test):
     # return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
 
 
-def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/deberta-base', embed_len=768):
+def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/deberta-base', embed_len=768):
     print("#####")
     print("Training BERT")
     from models import LogisticRegression
     from dataset import BertDataset
     from models import BertClassifier
 
-    id = 18
+    id = 22
 
     tokenizer, extractor = None, None
-    if bert_name == 'bert-base-uncased' or 'bert-base-cased':
+    if 'bert-base' in model_name:
         from transformers import BertTokenizer, BertModel
         tokenizer = BertTokenizer.from_pretrained(model_name)
         extractor = BertModel.from_pretrained(model_name)
-    elif 'deberta' in bert_name:
+    elif 'deberta' in model_name:
         from transformers import DebertaTokenizer, DebertaModel
         tokenizer = DebertaTokenizer.from_pretrained(model_name)
         extractor = DebertaModel.from_pretrained(model_name)
-    elif 'gpt2' in bert_name:
+    elif 'gpt2' in model_name:
         from transformers import GPT2Tokenizer, GPT2Model
         tokenizer = GPT2Tokenizer.from_pretrained(model_name)
         extractor = GPT2Model.from_pretrained(model_name)
         tokenizer.pad_token = tokenizer.eos_token  # for gpt tokenizer only
     else:
-        raise NotImplementedError(f"model {bert_name} not implemented")
+        raise NotImplementedError(f"model {model_name} not implemented")
 
     # freeze extractor
     for param in extractor.parameters():
@@ -149,12 +149,12 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 3, 1e-5, 8, torch.cuda.device_count(), 0.3
+    num_epochs, base_lr, base_bs, ngpus, dropout = 5, 1e-5, 8, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
 
-    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
@@ -231,11 +231,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, bert_name='microsoft/d
 
     # save checkpoint
     save_model(os.path.join(ckpt_dir, model_name),
-               f'{id}_{out_dim}auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}.pt',
+               f'{id}_{out_dim}auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
                model)
 
-    final_train_preds = torch.cat(final_train_preds, dim=0)
-    final_test_preds = torch.cat(final_test_preds, dim=0)
+    # final_train_preds = torch.cat(final_train_preds, dim=0)
+    # final_test_preds = torch.cat(final_test_preds, dim=0)
 
     del model
     del train_loader, test_loader
@@ -334,15 +334,14 @@ def run_iterations(source):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    # list_senders = [5, 10, 25, 50, 75, 100]
-    list_senders = [100]
-    # list_senders = [100]
+    list_senders = [5, 10, 25, 50, 75, 100]
 
     if source == "imdb62":
         list_senders = [62]
 
     # start training
     list_scores = []
+    accs = []
     for limit in list_senders:
         print("Number of authors: ", limit)
 
@@ -365,10 +364,11 @@ def run_iterations(source):
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
                                                                                                   return_features=True)
         print("Training done, accuracy is : ", score_bert)
-        print(bert_prob_train.shape)
-        print(bert_prob_test.shape)
-        print(bert_feat_train.shape)
-        print(bert_feat_test.shape)
+        accs.append(score_bert)
+        # print(bert_prob_train.shape)
+        # print(bert_prob_test.shape)
+        # print(bert_feat_train.shape)
+        # print(bert_feat_test.shape)
 
         # # Character N-gram only
     #     score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
@@ -435,3 +435,4 @@ def run_iterations(source):
     #
     # return list_scores
 
+    print(f'authors = {list_senders}, accs = {accs}')
