@@ -78,7 +78,7 @@ class TransformerEnsembleDataset(Dataset):
 
     def tokenize(self, x, i):
         dic = self.tokenizers[i].batch_encode_plus(
-                    [x],        # input must be a list
+                    batch_text_or_text_pairs=[x],        # input must be a list
                     max_length=self.lengths[i],
                     padding='max_length',
                     truncation=True,
@@ -99,3 +99,6 @@ class TransformerEnsembleDataset(Dataset):
         # i3, t3, a3 = self.x3['input_ids'][idx], self.x3['token_type_ids'][idx], self.x3['attention_mask'][idx]
         # i4, t4, a4 = self.x4['input_ids'][idx], self.x4['token_type_ids'][idx], self.x4['attention_mask'][idx]
         # return [i1, t1, a1], [i2, t2, a2], [i3, t3, a3], [i4, t4, a4], self.y[idx]
+
+    def __len__(self):
+        return len(self.y)

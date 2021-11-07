@@ -1,5 +1,5 @@
 import argparse
-from train import run_iterations
+from train_yugin import run_iterations
 import os
 import torch
 import numpy

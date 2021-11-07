@@ -55,7 +55,7 @@ class BertClassifier(nn.Module):
         # out = self.fc(feature.pooler_output.flatten(1))       # not good for our task     # (BS, E)
         out = self.fc(feature.last_hidden_state.flatten(1))     # (BS, T, E)
         if return_feat:
-            return out, feature
+            return out, feature.last_hidden_state.flatten(1)
         return out
 
 @dataclass
@@ -126,13 +126,15 @@ class DynamicWeightEnsemble(nn.Module):
 
         preds, feats = [], []
         for model, input in zip(self.components, inputs):
-            pred, feat = model(input, requires_feat=True)
+            pred, feat = model(input, return_feat=True)
             preds.append(pred)
             feats.append(feat)
 
         weights = self.attention(torch.cat(feats, dim=1))
-        for i, weight in enumerate(weights):
-            preds[i] = preds[i] * weight
+        weights = torch.transpose(weights, 0, 1)
+        for i in range(weights.size(0)):
+            for j in range(weights.size(1)):
+                preds[i][j] *= weights[i][j]
 
         return sum(preds)
 
