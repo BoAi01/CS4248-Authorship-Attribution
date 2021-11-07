@@ -20,3 +20,6 @@ One-time preparation of dataset </p>
 
 Start training with</p>
 ``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']> ```
+
+To run the bert ensemble mode with</p>
+``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']> --mode bert_ensemble ```
