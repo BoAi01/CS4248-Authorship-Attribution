@@ -9,12 +9,246 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import NumpyDataset
-from models import LogisticRegression
+from dataset import NumpyDataset, TransformerEnsembleDataset
+from models import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams
 from tqdm import tqdm
 import time
 
 ckpt_dir = 'ckpt'
+
+def train_ensemble(nlp_train, nlp_test,
+                    bert_path, deberta_path, roberta_path, gpt2_path,
+                    bert_hyperparams, deberta_hyperparams, roberta_hyperparams, gpt2_hyperparams,
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2):
+    print("#####")
+    print("Training Emsemble")
+    from models import LogisticRegression
+    from dataset import BertDataset
+    from models import BertClassifier
+    from transformers import BertTokenizer, BertModel, DebertaTokenizer, DebertaModel, RobertaTokenizer, RobertaModel, GPT2Tokenizer, GPT2Model
+
+    ngpus = torch.cuda.device_count()
+    train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
+    out_dim = max(test_y) + 1
+
+    bertTokenizer = BertTokenizer.from_pretrained('microsoft/bert-base-cased')
+    debertaTokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta-base')
+    robertaTokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+    gpt2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    gpt2Tokenizer.pad_token = gpt2Tokenizer.eos_token  # for gpt tokenizer only
+
+    # train_x_bert = bertTokenizer.batch_encode_plus(
+    #         train_x,
+    #         max_length=bert_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    # test_x_bert = bertTokenizer.batch_encode_plus(
+    #         test_x,
+    #         max_length=bert_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    
+    # train_x_deberta = bertTokenizer.batch_encode_plus(
+    #         train_x,
+    #         max_length=deberta_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    # test_x_deberta = bertTokenizer.batch_encode_plus(
+    #         test_x,
+    #         max_length=deberta_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    
+    # train_x_roberta = bertTokenizer.batch_encode_plus(
+    #         train_x,
+    #         max_length=roberta_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    # test_x_roberta = bertTokenizer.batch_encode_plus(
+    #         test_x,
+    #         max_length=roberta_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    
+    # train_x_gpt2 = bertTokenizer.batch_encode_plus(
+    #         train_x,
+    #         max_length=gpt2_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    # test_x_gpt2 = bertTokenizer.batch_encode_plus(
+    #         test_x,
+    #         max_length=gpt2_hyperparams.token_length,
+    #         padding=True,
+    #         truncation=True,
+    #         return_token_type_ids=False
+    #     )
+    
+    # ensemble_train_set, ensemble_test_set = TransformerEnsembleDataset(train_x_bert, train_x_deberta, train_x_roberta, train_x_gpt2), \
+    #                                         TransformerEnsembleDataset(test_x_bert, test_x_deberta, test_x_roberta, test_x_gpt2)
+
+    ensemble_train_set = TransformerEnsembleDataset(train_x, train_y, 
+        [BertTokenizer, DebertaTokenizer, RobertaTokenizer, GPT2Tokenizer],
+        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, gpt2_hyperparams.token_len])
+    ensemble_test_set = TransformerEnsembleDataset(test_x, test_y, 
+        [BertTokenizer, DebertaTokenizer, RobertaTokenizer, GPT2Tokenizer],
+        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, gpt2_hyperparams.token_len])
+
+    ensemble_train_loader, ensemble_test_loader = DataLoader(ensemble_train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True), \
+                                                  DataLoader(ensemble_test_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True)
+
+    # tokenizers = [bertTokenizer, debertaTokenizer, robertaTokenizer, gpt2Tokenizer]
+
+    bertExtractor = BertModel.from_pretrained('microsoft/bert-base-cased')
+    debertaExtractor = DebertaModel.from_pretrained('microsoft/deberta-base')
+    robertaExtractor = RobertaModel.from_pretrained('roberta-base')
+    gpt2Extractor = GPT2Model.from_pretrained('gpt2')
+
+    extractors = [bertExtractor, debertaExtractor, robertaExtractor, gpt2Extractor]
+    
+    # Freeze all extractor params
+    for extractor in extractors:
+        for param in extractor.parameters():
+            param.requires_grad = False
+    
+    bertModel = BertClassifier(bertExtractor, 
+        LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.num_tokens, 
+            bert_hyperparams.mlp_size, 5, dropout=0.0))
+    debertaModel = BertClassifier(debertaExtractor, 
+        LogisticRegression(deberta_hyperparams.embed_len * deberta_hyperparams.num_tokens, 
+            deberta_hyperparams.mlp_size, 5, dropout=0.0))
+    robertaModel = BertClassifier(robertaExtractor, 
+        LogisticRegression(roberta_hyperparams.embed_len * roberta_hyperparams.num_tokens, 
+            roberta_hyperparams.mlp_size, 5, dropout=0.0))
+    gpt2Model = BertClassifier(gpt2Extractor, 
+        LogisticRegression(gpt2_hyperparams.embed_len * gpt2_hyperparams.num_tokens, 
+            gpt2_hyperparams.mlp_size, 5, dropout=0.0))
+
+    bertModel.load_model_dic(bertModel, bert_path)
+    debertaModel.load_model_dic(debertaModel, deberta_path)
+    robertaModel.load_model_dic(robertaModel, roberta_path)
+    gpt2Model.load_model_dic(gpt2Model, gpt2_path)
+    
+    for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+        model.nn.DataParallel(model).cuda()
+    
+    # bert_train_set, bert_test_set = BertDataset(train_x, train_y, bertTokenizer, bert_hyperparams.num_tokens), \
+    #                                 BertDataset(test_x, test_y, bertTokenizer, bert_hyperparams.num_tokens)
+    # deberta_train_set, deberta__test_set = BertDataset(train_x, train_y, debertaTokenizer, deberta_hyperparams.num_tokens), \
+    #                                        BertDataset(test_x, test_y, debertaTokenizer, deberta_hyperparams.num_tokens)
+    # roberta_train_set, roberta_test_set = BertDataset(train_x, train_y, robertaTokenizer, roberta_hyperparams.num_tokens), \
+    #                                       BertDataset(test_x, test_y, robertaTokenizer, roberta_hyperparams.num_tokens)
+    # gpt2_train_set, gpt2_test_set = BertDataset(train_x, train_y, gpt2Tokenizer, gpt2_hyperparams.num_tokens), \
+    #                                 BertDataset(test_x, test_y, gpt2Tokenizer, gpt2_hyperparams.num_tokens)
+    
+    ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model], 768 * 4, hidden_len=mlp_size)
+    ensembleModel.nn.DataParallel(ensembleModel).cuda()
+
+    # training loop
+    optimizer = torch.optim.AdamW(params=ensembleModel.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
+    final_test_acc = None
+    # final_train_preds, final_test_preds = [], []
+    # train_feats, test_feats = [], []
+
+    for epoch in range(num_epochs):
+        if epoch == num_epochs - 1:
+            ensemble_train_loader = DataLoader(ensemble_train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True)
+        train_acc = AverageMeter()
+        train_loss = AverageMeter()
+
+        ensembleModel.train()
+        pg = tqdm(ensemble_train_loader, leave=False, total=len(ensemble_train_loader))
+        for i, (x, y) in enumerate(pg):
+            x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
+            x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
+            x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
+            x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
+            x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+            y = y.cuda()
+            pred = ensembleModel([x1, x2, x3, x4])
+            # if epoch == num_epochs - 1:  # for feature ensemble prediction
+            #     p, f = model(x, return_feat=True)
+            #     f = torch.flatten(f.last_hidden_state, start_dim=1)
+            #     train_feats.append(f.cpu().detach())
+            #     final_train_preds.append(p.cpu().detach())
+                # train_feats = f if (train_feats == None) else torch.cat((train_feats, f.detach()), 0)
+                # final_train_preds = p if (final_train_preds == None) else torch.cat((final_train_preds, p.detach()), 0)
+            loss = criterion(pred, y.long())
+            train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+            train_loss.update(loss.item())
+
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            pg.set_postfix({
+                'train acc': '{:.6f}'.format(train_acc.avg),
+                'train loss': '{:.6f}'.format(train_loss.avg),
+                'epoch': '{:03d}'.format(epoch)
+            })
+
+        ensembleModel.eval()
+        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader))
+        with torch.no_grad():
+            test_acc = AverageMeter()
+            for i, (x1, x2, x3, y) in enumerate(pg):
+                x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
+                pred = ensembleModel(x)
+                # if epoch == num_epochs - 1:  # for feature ensemble prediction
+                #     p, f = model(x, return_feat=True)
+                #     f = torch.flatten(f.last_hidden_state, start_dim=1)
+                #     test_feats.append(f.cpu().detach())
+                #     final_test_preds.append(p.cpu().detach())
+                    # test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
+                    # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+
+                pg.set_postfix({
+                    'test acc': '{:.6f}'.format(test_acc.avg),
+                    'epoch': '{:03d}'.format(epoch)
+                })
+
+        scheduler.step()
+
+        print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
+        final_test_acc = test_acc.avg
+
+    # save checkpoint
+    save_model(os.path.join(ckpt_dir, "ensemble"),
+               f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
+               model)
+
+    # final_train_preds = torch.cat(final_train_preds, dim=0)
+    # final_test_preds = torch.cat(final_test_preds, dim=0)
+
+    for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+        del model
+    del ensembleModel
+    del ensemble_train_loader, ensemble_test_loader
+
+    # if return_features:
+    #     # train_feats = torch.cat(train_feats, dim=0)
+    #     # test_feats = torch.cat(test_feats, dim=0)
+    #     return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
+
+    return final_test_acc#, final_train_preds, final_test_preds
 
 
 def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5,

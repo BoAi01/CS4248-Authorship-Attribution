@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from dataclasses import dataclass
 
 
 class LogisticRegression(nn.Module):
@@ -57,6 +58,11 @@ class BertClassifier(nn.Module):
             return out, feature
         return out
 
+@dataclass
+class BertClassiferHyperparams:
+    mlp_size: int
+    token_len: int
+    embed_len: int
 
 class SimpleEnsemble(nn.Module):
     """
