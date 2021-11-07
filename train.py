@@ -13,6 +13,12 @@ from models import LogisticRegression
 from tqdm import tqdm
 
 
+
+models = {'robert': [RobertaTokenizer, RobertaForSequenceClassification, 'roberta-base'],
+          'bert': [BertTokenizer, BertForSequenceClassification, 'bert-base-uncased'],
+          'xlnet': [XLNetTokenizer, XLNetForSequenceClassification, 'xlnet-base-cased']}
+
+
 def train_tf_idf(nlp_train, nlp_test):
     print("#####")
     print("Training TF-IDF")
@@ -213,6 +219,106 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram):
     return score_char, char_prob_train, char_prob_test
 
 
+
+def train_bert_emsemble(nlp_train, nlp_test):
+    train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
+    trained_models = []
+    test_dataloader = None
+    all_preds = []
+    all_ys = None
+    for model_name in list(models.keys())[:]:
+        all_ys, preds = train_singe_bert(model_name, train_x, train_y, test_x, test_y)
+        all_preds.append(preds)
+    new_all_preds = []
+    for a, b, c in zip(*all_preds):
+        new_all_preds.append(Counter([a, b, c]).most_common(1)[0][0])
+    test_acc = accuracy_score(all_ys, new_all_preds)
+    return test_acc
+
+
+def train_singe_bert(model_name, train_x, train_y, test_x, test_y):
+    print("#####")
+    print("Training model: {}".format(model_name))
+    criterion = nn.CrossEntropyLoss()
+    tokenizer_class, model_class, model_path = models[model_name]
+    tokenizer = tokenizer_class.from_pretrained(model_path)
+    model = model_class.from_pretrained(model_path, num_labels=max(test_y) + 1)
+    model.train()
+
+    # training setup
+    num_epochs, base_lr, base_bs, ngpus = 10, 3e-5, 64, 1
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=5e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    model = model.cuda()
+
+    # training loop
+    final_test_acc = None
+    final_train_preds, final_test_preds = None, None
+    train_feats, test_feats = None, None
+    train_set, test_set = BertDataset(train_x, train_y, tokenizer), BertDataset(test_x, test_y, tokenizer)
+    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=1 * ngpus,
+                              pin_memory=False)
+    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=1 * ngpus,
+                             pin_memory=False)
+    best_test_acc = 0
+    best_model = None 
+    for epoch in range(num_epochs):
+        train_acc = AverageMeter()
+        train_loss = AverageMeter()
+
+        pg = tqdm(train_loader, leave=False, total=len(train_loader))
+        for i, (x1, x2, y) in enumerate(pg):
+            x, y = (x1.cuda(), x2.cuda()), y.cuda()
+            outputs = model(x[0], x[1],labels=y)
+            loss = outputs[0]
+            pred = outputs[1]
+            train_acc.update(((pred.argmax(-1) == y).sum() / len(y)).item())
+            train_loss.update(loss.item())
+
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            pg.set_postfix({
+                'train acc': '{:.6f}'.format(train_acc.avg),
+                'train loss': '{:.6f}'.format(train_loss.avg),
+                'epoch': '{:03d}'.format(epoch)
+            })
+
+        pg = tqdm(test_loader, leave=False, total=len(test_loader))
+        with torch.no_grad():
+            test_acc = AverageMeter()
+            for i, (x1, x2, y) in enumerate(pg):
+                x, y = (x1.cuda(), x2.cuda()), y.cuda()
+                pred = model(x[0],x[1])[0]
+                test_acc.update(((pred.argmax(1) == y).sum() / len(y)).item())
+
+                pg.set_postfix({
+                    'test acc': '{:.6f}'.format(test_acc.avg),
+                    'epoch': '{:03d}'.format(epoch)
+                })
+
+        scheduler.step()
+        if test_acc.avg > best_test_acc:
+            best_test_acc = test_acc.avg
+            best_model = model
+
+        print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
+        final_test_acc = test_acc.avg
+    print(final_test_acc)
+    preds = []
+    best_model.eval()
+    all_ys = []
+    with torch.no_grad():
+         for i, (x1, x2, y) in enumerate(pg):
+                all_ys.extend(y.cpu().numpy())
+                x, y = (x1.cuda(), x2.cuda()), y.cuda()
+                pred = best_model(x[0],x[1])[0]
+                preds.extend(torch.argmax(pred, dim=-1).cpu().numpy())
+    return all_ys, preds
+
+
 def run_iterations(source):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
@@ -262,6 +368,35 @@ def run_iterations(source):
 
         # Store scores
         list_scores.append([limit, score_lr, score_bert, score_style, score_comb_fin])
+
+    list_scores = np.array(list_scores)
+
+    return list_scores
+
+
+
+
+def run_iterations_bert(source):
+    # Load data and remove emails containing the sender's name
+    df = load_dataset_dataframe(source)
+
+    # list_senders = [5, 10, 25, 50, 75, 100]
+    list_senders = [75,100]
+
+    if source == "imdb62":
+        list_senders = [62]
+
+    # start training
+    list_scores = []
+    for limit in list_senders:
+        print("Number of authors: ", limit)
+
+        # Select top N senders and build Train and Test
+        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit)
+
+        # Bert + Classification Layer
+        test_acc = train_bert_emsemble(nlp_train, nlp_test)
+        print("Training done, accuracy is : ", test_acc)
 
     list_scores = np.array(list_scores)
 

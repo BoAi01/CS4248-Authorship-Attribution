@@ -38,5 +38,10 @@ if __name__ == '__main__':
     datasets = ['imdb62', 'enron', 'imdb', 'blog']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training')
+    parser.add_argument('--mode', type=str, default='bert_ensemble', help='the dataset used for training')
     args = parser.parse_args()
-    list_scores = run_iterations(source=args.dataset)
+    print(args)
+    if args.mode == 'bert_ensemble':
+        run_iterations_bert(source=args.dataset)
+    else:
+        run_iterations(source=args.dataset)
