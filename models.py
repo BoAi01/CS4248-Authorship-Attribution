@@ -16,9 +16,11 @@ class LogisticRegression(nn.Module):
             nn.Linear(hid_dim, out_dim, bias=True),
         )
 
-    def forward(self, x):
-        return self.nn(x)
-
+    def forward(self, x, return_feat=False):
+        out = self.nn(x)
+        if return_feat:
+            return out, x
+        return out
 
 class MLP2Layer(nn.Module):
     def __init__(self, in_dim, hid_dim, out_dim, dropout=0):
@@ -163,7 +165,7 @@ class AggregateFeatEnsemble(nn.Module):
 
         feats = []
         for model, input in zip(self.components, inputs):
-            _, feat = model(input, requires_feat=True)
+            _, feat = model(input, return_feat=True)
             feats.append(feat)
 
         return self.nn(torch.cat(feats, dim=1))

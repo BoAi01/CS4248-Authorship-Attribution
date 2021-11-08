@@ -1,4 +1,6 @@
 from typing import final
+
+from pandas.core import base
 from utils import *  # bad practice, nvm
 
 from sklearn.metrics import accuracy_score
@@ -10,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from dataset import NumpyDataset, TransformerEnsembleDataset
-from models import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams, SimpleEnsemble, FixedWeightEnsemble
+from models import AggregateFeatEnsemble, DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams, SimpleEnsemble, FixedWeightEnsemble
 from tqdm import tqdm
 import time
 
@@ -21,7 +23,7 @@ ckpt_dir = 'ckpt'
 def train_ensemble(nlp_train, nlp_test,
                     bert_path, deberta_path, roberta_path, gpt2_path,
                     bert_hyperparams : BertClassiferHyperparams, deberta_hyperparams : BertClassiferHyperparams, roberta_hyperparams : BertClassiferHyperparams, gpt2_hyperparams : BertClassiferHyperparams,
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2,
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
                     ensemble_type="dynamic"):
     print("#####")
     print("Training Ensemble")
@@ -195,6 +197,11 @@ def train_ensemble(nlp_train, nlp_test,
                                             768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len), 
                                             hidden_len=mlp_size) \
                     if "dynamic" in ensemble_type else \
+                    AggregateFeatEnsemble([bertModel, debertaModel, robertaModel, gpt2Model],
+                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len), 
+                                            num_classes=num_authors,
+                                            hidden_len=mlp_size) \
+                    if "aggregate" in ensemble_type else \
                     FixedWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
 
     ensembleModel = nn.DataParallel(ensembleModel).cuda()
@@ -296,8 +303,8 @@ def train_ensemble(nlp_train, nlp_test,
         return final_test_acc#, final_train_preds, final_test_preds
 
 
-def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5,
-                ckpt_name=None):
+def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=1,
+                ckpt_name=None, model_name=None, hidden_dim=10, base_lr=1e-4, base_bs=8, out_dim=5, dropout=0.3):
     """
     A training loop implementation suitable for most models
     """
@@ -353,15 +360,17 @@ def train_model(model, train_set, train_loader, test_loader, criterion, schedule
         final_test_acc = test_acc.avg
 
     # save checkpoint
-    if ckpt_name:
-        save_model(os.path.join(ckpt_dir, model_name), ckpt_name, model)
+    save_model(os.path.join(ckpt_dir, model_name),
+               f'{out_dim}auth_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
+               model)
+
 
     final_train_preds, final_test_preds = torch.cat(final_train_preds, dim=0), torch.cat(final_test_preds, dim=0)
 
     return final_test_acc, final_train_preds, final_test_preds
 
 
-def train_tf_idf(nlp_train, nlp_test):
+def train_tf_idf(nlp_train, nlp_test, num_authors=5):
     print("#####")
     print("Training TF-IDF")
 
@@ -372,26 +381,23 @@ def train_tf_idf(nlp_train, nlp_test):
 
     train_x, train_y = train_x.toarray(), train_y.to_numpy()
     test_x, test_y = test_x.toarray(), test_y.to_numpy()
-    print(train_x)
-    print(train_x.shape)
-
-    return 0
 
     # training setup
-    # num_epochs, base_lr, base_bs, ngpus = 5, 5e-4, 32, torch.cuda.device_count()
-    # in_dim, out_dim = train_x.shape[1], test_y.max()+1
-    # model = LogisticRegression(in_dim=in_dim, hid_dim=out_dim * 2, out_dim=out_dim, dropout=0.2)
-    # optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
-    # criterion = nn.CrossEntropyLoss()
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
-    # train_set, test_set = NumpyDataset(train_x, train_y), NumpyDataset(test_x, test_y)
-    # train_loader = DataLoader(train_set, batch_size=base_bs*ngpus, shuffle=True, num_workers=12*ngpus, pin_memory=True)
-    # test_loader = DataLoader(test_set, batch_size=base_bs*ngpus, shuffle=False, num_workers=12*ngpus, pin_memory=True)
-    #
-    # # load model into multi-gpu
-    # model = nn.DataParallel(model).cuda()
-    #
-    # return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, num_epochs=num_epochs)
+    num_epochs, base_lr, base_bs, ngpus, dropout = 1, 1e-2, 32, torch.cuda.device_count(), 0.0
+    in_dim, out_dim, hidden_dim = train_x.shape[1], test_y.max()+1, 20
+    model = LogisticRegression(in_dim=in_dim, hid_dim=hidden_dim, out_dim=out_dim, dropout=dropout)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    train_set, test_set = NumpyDataset(train_x, train_y), NumpyDataset(test_x, test_y)
+    train_loader = DataLoader(train_set, batch_size=base_bs*ngpus, shuffle=True, num_workers=12*ngpus, pin_memory=True)
+    test_loader = DataLoader(test_set, batch_size=base_bs*ngpus, shuffle=False, num_workers=12*ngpus, pin_memory=True)
+
+    # load model into multi-gpu
+    model = nn.DataParallel(model).cuda()
+    
+    return train_model(model, train_loader=train_loader, test_loader=test_loader, criterion=criterion, scheduler=scheduler, optimizer=optimizer, train_set=train_set,
+                        num_epochs=num_epochs, base_lr=base_lr, base_bs=base_bs, model_name='tf_idf', out_dim=num_authors, dropout=dropout, hidden_dim=hidden_dim)
 
 
 def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/deberta-base', embed_len=768):
@@ -637,9 +643,9 @@ def run_iterations(source):
         # Select top N senders and build Train and Test
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit)
 
-        # TF-IDF + LR
-        # score_lr = train_tf_idf(nlp_train, nlp_test)
-        # print("Training done, accuracy is : ", score_lr)
+        #TF-IDF + LR
+        # final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
+        # print("Training done, accuracy is : ", final_test_acc)
 
         # Style-based classifier
         # score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
@@ -674,8 +680,8 @@ def run_iterations(source):
                         token_len=256,
                         embed_len=768
                     ),
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2,
-                    ensemble_type="fixed")
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
+                    ensemble_type="aggregate")
 
         # Bert + Classification Layer
         # score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
