@@ -9,8 +9,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset_yugin import NumpyDataset, TransformerEnsembleDataset
-from models_yugin import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams
+from dataset import NumpyDataset, TransformerEnsembleDataset
+from models import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams
 from tqdm import tqdm
 import time
 
@@ -22,9 +22,9 @@ def train_ensemble(nlp_train, nlp_test,
                     num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2):
     print("#####")
     print("Training Ensemble")
-    from models_yugin import LogisticRegression
-    from dataset_yugin import BertDataset
-    from models_yugin import BertClassifier
+    from models import LogisticRegression
+    from dataset import BertDataset
+    from models import BertClassifier
     from transformers import BertTokenizer, BertModel, DebertaTokenizer, DebertaModel, RobertaTokenizer, RobertaModel, GPT2Tokenizer, GPT2Model
 
     ngpus = torch.cuda.device_count()
