@@ -656,32 +656,34 @@ def run_iterations(source):
         # print(style_feat_test.shape)
 
         train_ensemble(nlp_train, nlp_test,
-                    'ckpt/bert-base-cased/23_5auth_256tokens_hid512_epoch1_lr0.0001_bs8_drop0.4_acc0.41800.pt', 
-                    'ckpt/microsoft/deberta-base/22_5auth_372tokens_hid512_epoch5_lr1e-05_bs4_drop0.35_acc0.99513.pt', 
-                    'ckpt/roberta-base/24_5auth_256tokens_hid512_epoch6_lr1e-05_bs8_drop0.35_acc0.99693.pt', #roberta
-                    'ckpt/gpt2/18_5auth_256tokens_hid512_epoch1_lr1e-05_bs8_drop0.3.pt', #gpt2
-                    BertClassiferHyperparams(
+                    'ckpt/bert-base-cased/23_5auth_256tokens_hid512_epoch1_lr0.0001_bs8_drop0.4_acc0.41800.pt',        # bert
+                    'ckpt/microsoft/deberta-base/22_5auth_372tokens_hid512_epoch5_lr1e-05_bs4_drop0.35_acc0.99513.pt', # deberta
+                    'ckpt/roberta-base/24_5auth_256tokens_hid512_epoch6_lr1e-05_bs8_drop0.35_acc0.99693.pt',           # roberta
+                    'ckpt/gpt2/18_5auth_256tokens_hid512_epoch1_lr1e-05_bs8_drop0.3.pt',                               # gpt2
+                    
+                    # Copy checkpoint parameters from Google sheet
+                    BertClassiferHyperparams( # bert
                         mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
-                    BertClassiferHyperparams(
+                    BertClassiferHyperparams( # deberta
                         mlp_size=512,
                         token_len=372,
                         embed_len=768
                     ),
-                    BertClassiferHyperparams(
+                    BertClassiferHyperparams( # roberta
                         mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
-                    BertClassiferHyperparams(
+                    BertClassiferHyperparams( # gpt2
                         mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
-                    ensemble_type="aggregate")
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5, # tune - parameters for ensemble final layer LR
+                    ensemble_type="aggregate") # "simple", "fixed", "dynamic", "aggregate"
 
         # Bert + Classification Layer
         # score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
