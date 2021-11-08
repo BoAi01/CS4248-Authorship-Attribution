@@ -10,16 +10,19 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from dataset import NumpyDataset, TransformerEnsembleDataset
-from models import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams
+from models import DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams, SimpleEnsemble, FixedWeightEnsemble
 from tqdm import tqdm
 import time
 
 ckpt_dir = 'ckpt'
 
+
+
 def train_ensemble(nlp_train, nlp_test,
                     bert_path, deberta_path, roberta_path, gpt2_path,
                     bert_hyperparams : BertClassiferHyperparams, deberta_hyperparams : BertClassiferHyperparams, roberta_hyperparams : BertClassiferHyperparams, gpt2_hyperparams : BertClassiferHyperparams,
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2):
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2,
+                    ensemble_type="dynamic"):
     print("#####")
     print("Training Ensemble")
     from models import LogisticRegression
@@ -154,10 +157,46 @@ def train_ensemble(nlp_train, nlp_test,
     #                                       BertDataset(test_x, test_y, robertaTokenizer, roberta_hyperparams.num_tokens)
     # gpt2_train_set, gpt2_test_set = BertDataset(train_x, train_y, gpt2Tokenizer, gpt2_hyperparams.num_tokens), \
     #                                 BertDataset(test_x, test_y, gpt2Tokenizer, gpt2_hyperparams.num_tokens)
-    
+
+    final_test_acc = None
+    if "simple" in ensemble_type:
+        ensembleModel = SimpleEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
+        ensembleModel = nn.DataParallel(ensembleModel).cuda()
+
+        ensembleModel.eval()
+        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader))
+        with torch.no_grad():
+            test_acc = AverageMeter()
+            for i, (x, y) in enumerate(pg):
+                x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
+                x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
+                x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
+                x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
+                x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+                y = y.cuda()
+                pred = ensembleModel([x1, x2, x3, x4])
+                # if epoch == num_epochs - 1:  # for feature ensemble prediction
+                #     p, f = model(x, return_feat=True)
+                #     f = torch.flatten(f.last_hidden_state, start_dim=1)
+                #     test_feats.append(f.cpu().detach())
+                #     final_test_preds.append(p.cpu().detach())
+                    # test_feats = f if (test_feats == None) else torch.cat((test_feats, f), 0)
+                    # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+
+                pg.set_postfix({
+                    'test acc': '{:.6f}'.format(test_acc.avg),
+                })
+                final_test_acc = test_acc.avg
+                print(f'test acc {final_test_acc}')
+                return final_test_acc
+
     ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model],
                                             768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len), 
-                                            hidden_len=mlp_size)
+                                            hidden_len=mlp_size) \
+                    if "dynamic" in ensemble_type else \
+                    FixedWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
+
     ensembleModel = nn.DataParallel(ensembleModel).cuda()
 
     # training loop
@@ -165,7 +204,6 @@ def train_ensemble(nlp_train, nlp_test,
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
-    final_test_acc = None
     # final_train_preds, final_test_preds = [], []
     # train_feats, test_feats = [], []
 
@@ -237,25 +275,25 @@ def train_ensemble(nlp_train, nlp_test,
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
-    # save checkpoint
-    save_model(os.path.join(ckpt_dir, "ensemble"),
-               f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
-               model)
+        # save checkpoint
+        save_model(os.path.join(ckpt_dir, "ensemble"),
+                f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
+                model)
 
-    # final_train_preds = torch.cat(final_train_preds, dim=0)
-    # final_test_preds = torch.cat(final_test_preds, dim=0)
+        # final_train_preds = torch.cat(final_train_preds, dim=0)
+        # final_test_preds = torch.cat(final_test_preds, dim=0)
 
-    for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
-        del model
-    del ensembleModel
-    del ensemble_train_loader, ensemble_test_loader
+        for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+            del model
+        del ensembleModel
+        del ensemble_train_loader, ensemble_test_loader
 
-    # if return_features:
-    #     # train_feats = torch.cat(train_feats, dim=0)
-    #     # test_feats = torch.cat(test_feats, dim=0)
-    #     return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
+        # if return_features:
+        #     # train_feats = torch.cat(train_feats, dim=0)
+        #     # test_feats = torch.cat(test_feats, dim=0)
+        #     return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
 
-    return final_test_acc#, final_train_preds, final_test_preds
+        return final_test_acc#, final_train_preds, final_test_preds
 
 
 def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=5,
@@ -359,9 +397,9 @@ def train_tf_idf(nlp_train, nlp_test):
 def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/deberta-base', embed_len=768):
     print("#####")
     print("Training BERT")
-    from models_yugin import LogisticRegression
-    from dataset_yugin import BertDataset
-    from models_yugin import BertClassifier
+    from models import LogisticRegression
+    from dataset import BertDataset
+    from models import BertClassifier
 
     id = 23
 
@@ -636,7 +674,8 @@ def run_iterations(source):
                         token_len=256,
                         embed_len=768
                     ),
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2)
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2,
+                    ensemble_type="fixed")
 
         # Bert + Classification Layer
         # score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,

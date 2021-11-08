@@ -87,17 +87,20 @@ class FixedWeightEnsemble(nn.Module):
     """
 
     def __init__(self, components):
+        super(FixedWeightEnsemble, self).__init__()
+        self.components = components
         self.weights = nn.Linear(1, len(components), bias=False)
+        self.weightsInput = torch.tensor([1], dtype=torch.float).cuda()
 
     def forward(self, inputs):
         assert len(self.components) == len(inputs)
 
         preds = []
         for model, input in zip(self.components, inputs):
-            pred, _ = model(input)
+            pred = model(input)
             preds.append(pred)
 
-        weights = self.weights(1)
+        weights = self.weights(self.weightsInput)
         for i, weight in enumerate(weights):
             preds[i] = preds[i] * weight
 
