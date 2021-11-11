@@ -683,7 +683,7 @@ def run_iterations(source):
                         embed_len=768
                     ),
                     num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5, # tune - parameters for ensemble final layer LR
-                    ensemble_type="aggregate") # "simple", "fixed", "dynamic", "aggregate"
+                    ensemble_type="dynamic") # "simple", "fixed", "dynamic", "aggregate"
 
         # Bert + Classification Layer
         # score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
