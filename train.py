@@ -167,7 +167,7 @@ def train_ensemble(nlp_train, nlp_test,
 
     final_test_acc = None
     if "simple" in ensemble_type:
-        ensembleModel = SimpleEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
+        ensembleModel = SimpleEnsemble([bertModel, debertaModel, robertaModel, xlnetModel])
         ensembleModel = nn.DataParallel(ensembleModel).cuda()
 
         ensembleModel.eval()
@@ -175,7 +175,7 @@ def train_ensemble(nlp_train, nlp_test,
         with torch.no_grad():
             test_acc = AverageMeter()
             for i, (x, y) in enumerate(pg):
-                x1, x2, x3, x4, x5 = x[0], x[1], x[2], x[3], x[4]
+                x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
                 x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
                 x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
                 x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
