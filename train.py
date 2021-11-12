@@ -191,12 +191,12 @@ def train_ensemble(nlp_train, nlp_test,
                     # final_test_preds = p if (final_test_preds == None) else torch.cat((final_test_preds, p), 0)
                 test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
 
-                pg.set_postfix({
-                    'test acc': '{:.6f}'.format(test_acc.avg),
-                })
-                final_test_acc = test_acc.avg
-                print(f'test acc {final_test_acc}')
-                return final_test_acc
+            pg.set_postfix({
+                'test acc': '{:.6f}'.format(test_acc.avg),
+            })
+            final_test_acc = test_acc.avg
+            print(f'test acc {final_test_acc}')
+            return final_test_acc
 
     ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel, xlnetModel],
                                             768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len +  xlnet_hyperparams.token_len), 
