@@ -21,16 +21,16 @@ ckpt_dir = 'ckpt'
 
 
 def train_ensemble(nlp_train, nlp_test,
-                    bert_path, deberta_path, roberta_path, gpt2_path,
-                    bert_hyperparams : BertClassiferHyperparams, deberta_hyperparams : BertClassiferHyperparams, roberta_hyperparams : BertClassiferHyperparams, gpt2_hyperparams : BertClassiferHyperparams,
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
-                    ensemble_type="dynamic"):
+                    bert_path, deberta_path, roberta_path, gpt2_path, xlnet_path,
+                    bert_hyperparams : BertClassiferHyperparams, deberta_hyperparams : BertClassiferHyperparams, roberta_hyperparams : BertClassiferHyperparams, gpt2_hyperparams : BertClassiferHyperparams, xlnet_hyperparams: BertClassiferHyperparams,
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=50,
+                    ensemble_type="aggregate"):
     print("#####")
     print("Training Ensemble")
     from models import LogisticRegression
     from dataset import BertDataset
     from models import BertClassifier
-    from transformers import BertTokenizer, BertModel, DebertaTokenizer, DebertaModel, RobertaTokenizer, RobertaModel, GPT2Tokenizer, GPT2Model
+    from transformers import BertTokenizer, BertModel, DebertaTokenizer, DebertaModel, RobertaTokenizer, RobertaModel, GPT2Tokenizer, GPT2Model, XLNetTokenizer, XLNetModel
 
     ngpus = torch.cuda.device_count()
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
@@ -40,9 +40,9 @@ def train_ensemble(nlp_train, nlp_test,
     bertTokenizer = BertTokenizer.from_pretrained('bert-base-cased')
     debertaTokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta-base')
     robertaTokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-    gpt2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    gpt2Tokenizer.pad_token = gpt2Tokenizer.eos_token  # for gpt tokenizer only
-
+    # gpt2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    # gpt2Tokenizer.pad_token = gpt2Tokenizer.eos_token  # for gpt tokenizer only
+    xlnetTokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
     # train_x_bert = bertTokenizer.batch_encode_plus(
     #         train_x,
     #         max_length=bert_hyperparams.token_length,
@@ -107,11 +107,11 @@ def train_ensemble(nlp_train, nlp_test,
     #                                         TransformerEnsembleDataset(test_x_bert, test_x_deberta, test_x_roberta, test_x_gpt2)
 
     ensemble_train_set = TransformerEnsembleDataset(train_x, train_y, 
-        [bertTokenizer, debertaTokenizer, robertaTokenizer, gpt2Tokenizer],
-        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, gpt2_hyperparams.token_len])
+        [bertTokenizer, debertaTokenizer, robertaTokenizer, xlnetTokenizer],
+        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, xlnet_hyperparams.token_len])
     ensemble_test_set = TransformerEnsembleDataset(test_x, test_y, 
-        [bertTokenizer, debertaTokenizer, robertaTokenizer, gpt2Tokenizer],
-        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, gpt2_hyperparams.token_len])
+        [bertTokenizer, debertaTokenizer, robertaTokenizer, xlnetTokenizer],
+        [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, xlnet_hyperparams.token_len])
 
     ensemble_train_loader, ensemble_test_loader = DataLoader(ensemble_train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True), \
                                                   DataLoader(ensemble_test_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True)
@@ -122,8 +122,9 @@ def train_ensemble(nlp_train, nlp_test,
     debertaExtractor = DebertaModel.from_pretrained('microsoft/deberta-base')
     robertaExtractor = RobertaModel.from_pretrained('roberta-base')
     gpt2Extractor = GPT2Model.from_pretrained('gpt2')
+    xlentExtracor = XLNetModel.from_pretrained('xlnet-base-cased')
 
-    extractors = [bertExtractor, debertaExtractor, robertaExtractor, gpt2Extractor]
+    extractors = [bertExtractor, debertaExtractor, robertaExtractor, xlentExtracor]
     
     # Freeze all extractor params
     for extractor in extractors:
@@ -132,23 +133,27 @@ def train_ensemble(nlp_train, nlp_test,
     
     bertModel = BertClassifier(bertExtractor, 
         LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len, 
-            bert_hyperparams.mlp_size, 5, dropout=0.0))
+            bert_hyperparams.mlp_size, num_authors, dropout=0.0))
     debertaModel = BertClassifier(debertaExtractor, 
         LogisticRegression(deberta_hyperparams.embed_len * deberta_hyperparams.token_len, 
-            deberta_hyperparams.mlp_size, 5, dropout=0.0))
+            deberta_hyperparams.mlp_size, num_authors, dropout=0.0))
     robertaModel = BertClassifier(robertaExtractor, 
         LogisticRegression(roberta_hyperparams.embed_len * roberta_hyperparams.token_len, 
-            roberta_hyperparams.mlp_size, 5, dropout=0.0))
-    gpt2Model = BertClassifier(gpt2Extractor, 
-        LogisticRegression(gpt2_hyperparams.embed_len * gpt2_hyperparams.token_len, 
-            gpt2_hyperparams.mlp_size, 5, dropout=0.0))
+            roberta_hyperparams.mlp_size, num_authors, dropout=0.0))
+    # gpt2Model = BertClassifier(gpt2Extractor, 
+    #     LogisticRegression(gpt2_hyperparams.embed_len * gpt2_hyperparams.token_len, 
+    #         gpt2_hyperparams.mlp_size, num_authors, dropout=0.0))
+    xlnetModel = BertClassifier(xlentExtracor, 
+        LogisticRegression(xlnet_hyperparams.embed_len * xlnet_hyperparams.token_len, 
+            xlnet_hyperparams.mlp_size, num_authors, dropout=0.0))
 
     bertModel = load_model_dic(bertModel, bert_path)
     debertaModel = load_model_dic(debertaModel, deberta_path)
     robertaModel = load_model_dic(robertaModel, roberta_path)
-    gpt2Model = load_model_dic(gpt2Model, gpt2_path)
+    # gpt2Model = load_model_dic(gpt2Model, gpt2_path)
+    xlnetModel = load_model_dic(xlnetModel, xlnet_path)
     
-    for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+    for model in [bertModel, debertaModel, robertaModel, xlnetModel]:
         model = nn.DataParallel(model).cuda()
     
     # bert_train_set, bert_test_set = BertDataset(train_x, train_y, bertTokenizer, bert_hyperparams.num_tokens), \
@@ -166,11 +171,11 @@ def train_ensemble(nlp_train, nlp_test,
         ensembleModel = nn.DataParallel(ensembleModel).cuda()
 
         ensembleModel.eval()
-        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader))
+        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader), disable=True)
         with torch.no_grad():
             test_acc = AverageMeter()
             for i, (x, y) in enumerate(pg):
-                x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
+                x1, x2, x3, x4, x5 = x[0], x[1], x[2], x[3], x[4]
                 x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
                 x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
                 x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
@@ -193,16 +198,16 @@ def train_ensemble(nlp_train, nlp_test,
                 print(f'test acc {final_test_acc}')
                 return final_test_acc
 
-    ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model],
-                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len), 
+    ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel, xlnetModel],
+                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len +  xlnet_hyperparams.token_len), 
                                             hidden_len=mlp_size) \
                     if "dynamic" in ensemble_type else \
-                    AggregateFeatEnsemble([bertModel, debertaModel, robertaModel, gpt2Model],
-                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len), 
+                    AggregateFeatEnsemble([bertModel, debertaModel, robertaModel, xlnetModel],
+                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + xlnet_hyperparams.token_len), 
                                             num_classes=num_authors,
                                             hidden_len=mlp_size) \
                     if "aggregate" in ensemble_type else \
-                    FixedWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
+                    FixedWeightEnsemble([bertModel, debertaModel, robertaModel, xlnetModel])
 
     ensembleModel = nn.DataParallel(ensembleModel).cuda()
 
@@ -221,13 +226,14 @@ def train_ensemble(nlp_train, nlp_test,
         train_loss = AverageMeter()
 
         ensembleModel.train()
-        pg = tqdm(ensemble_train_loader, leave=False, total=len(ensemble_train_loader))
+        pg = tqdm(ensemble_train_loader, leave=False, total=len(ensemble_train_loader), disable=True)
         for i, (x, y) in enumerate(pg):
             x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
             x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
             x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
             x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
             x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+            # x5 = (x5[0].cuda(), x5[1].cuda(), x5[2].cuda())
             y = y.cuda()
             pred = ensembleModel([x1, x2, x3, x4])
             # if epoch == num_epochs - 1:  # for feature ensemble prediction
@@ -252,7 +258,7 @@ def train_ensemble(nlp_train, nlp_test,
             })
 
         ensembleModel.eval()
-        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader))
+        pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader), disable=True)
         with torch.no_grad():
             test_acc = AverageMeter()
             for i, (x, y) in enumerate(pg):
@@ -261,6 +267,7 @@ def train_ensemble(nlp_train, nlp_test,
                 x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
                 x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
                 x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+                # x5 = (x5[0].cuda(), x5[1].cuda(), x5[2].cuda())
                 y = y.cuda()
                 pred = ensembleModel([x1, x2, x3, x4])
                 # if epoch == num_epochs - 1:  # for feature ensemble prediction
@@ -290,17 +297,17 @@ def train_ensemble(nlp_train, nlp_test,
         # final_train_preds = torch.cat(final_train_preds, dim=0)
         # final_test_preds = torch.cat(final_test_preds, dim=0)
 
-        for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
-            del model
-        del ensembleModel
-        del ensemble_train_loader, ensemble_test_loader
+    for model in [bertModel, debertaModel, robertaModel, xlnetModel]:
+        del model
+    del ensembleModel
+    del ensemble_train_loader, ensemble_test_loader
 
         # if return_features:
         #     # train_feats = torch.cat(train_feats, dim=0)
         #     # test_feats = torch.cat(test_feats, dim=0)
         #     return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
 
-        return final_test_acc#, final_train_preds, final_test_preds
+    return final_test_acc#, final_train_preds, final_test_preds
 
 
 def train_model(model, train_set, train_loader, test_loader, criterion, scheduler, optimizer, num_epochs=1,
@@ -625,11 +632,11 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_feat
     return final_test_acc, final_train_preds, final_test_preds
 
 
-def run_iterations(source):
+def run_iterations(source, num_authors, ensemble_type):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [5]
+    list_senders = [num_authors]
 
     if source == "imdb62":
         list_senders = [62]
@@ -656,10 +663,11 @@ def run_iterations(source):
         # print(style_feat_test.shape)
 
         train_ensemble(nlp_train, nlp_test,
-                    'ckpt/bert-base-cased/23_5auth_256tokens_hid512_epoch1_lr0.0001_bs8_drop0.4_acc0.41800.pt',        # bert
-                    'ckpt/microsoft/deberta-base/22_5auth_372tokens_hid512_epoch5_lr1e-05_bs4_drop0.35_acc0.99513.pt', # deberta
-                    'ckpt/roberta-base/24_5auth_256tokens_hid512_epoch6_lr1e-05_bs8_drop0.35_acc0.99693.pt',           # roberta
-                    'ckpt/gpt2/18_5auth_256tokens_hid512_epoch1_lr1e-05_bs8_drop0.3.pt',                               # gpt2
+                    f'ckpt/bert-base-cased/{num_authors}.pt',        # bert
+                    f'ckpt/deberta-base/{num_authors}.pt',           # deberta
+                    f'ckpt/roberta-base/{num_authors}.pt',           # roberta
+                    f'ckpt/gpt2/{num_authors}.pt',                   # gpt2
+                    f'ckpt/xlnet-base-cased/{num_authors}.pt',       # xlnet
                     
                     # Copy checkpoint parameters from Google sheet
                     BertClassiferHyperparams( # bert
@@ -669,7 +677,7 @@ def run_iterations(source):
                     ),
                     BertClassiferHyperparams( # deberta
                         mlp_size=512,
-                        token_len=372,
+                        token_len=256,
                         embed_len=768
                     ),
                     BertClassiferHyperparams( # roberta
@@ -682,8 +690,13 @@ def run_iterations(source):
                         token_len=256,
                         embed_len=768
                     ),
-                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5, # tune - parameters for ensemble final layer LR
-                    ensemble_type="aggregate") # "simple", "fixed", "dynamic", "aggregate"
+                    BertClassiferHyperparams( # xlnet
+                        mlp_size=512,
+                        token_len=256,
+                        embed_len=768
+                    ),
+                    num_epochs=10, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, # tune - parameters for ensemble final layer LR
+                    num_authors=num_authors, ensemble_type=ensemble_type) # "simple", "fixed", "dynamic", "aggregate"
 
         # Bert + Classification Layer
         # score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
