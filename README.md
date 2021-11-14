@@ -10,13 +10,11 @@ Manually install APEX:
 git clone https://github.com/NVIDIA/apex
 pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
 ```
-
-Install the rest of dependencies via </p>
-```pip install -r requirements.txt```
+For the other depdencies, manual installation is required. 
 
 ## Training
 One-time preparation of dataset </p>
 ``` python prepare_dataset.py ```
 
 Start training with</p>
-``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']> ```
+``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']>  --gpu <gpu indices, optional> --samples-per-author <# of samples per author> ```
