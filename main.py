@@ -14,6 +14,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training')
     parser.add_argument('--gpu', type=str, help='the cuda devices used for training', default="0,1,2,3")
+    parser.add_argument('--samples-per-author', type=int, help='number of samples per author', default=None)
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    list_scores = run_iterations(source=args.dataset)
+    list_scores = run_iterations(source=args.dataset, per_author=args.samples_per_author)
