@@ -18,3 +18,10 @@ One-time preparation of dataset </p>
 
 Start training with</p>
 ``` python main.py --dataset <dataset name in ['imdb62', 'enron', 'imdb', 'blog']>  --gpu <gpu indices, optional> --samples-per-author <# of samples per author> ```
+
+## Pre-trained model training
+- Change the `model_name` argument in the function call of `train_bert` in `train.py` to that of the desired model (`bert-base-cased`, `roberta-base`, `microsoft/deberta-base`, `gpt2`, or `xlnet-base-cased`).
+
+## Ensemble training
+- Download the pre-trained checkpoints for the various models from [Google Drive](https://drive.google.com/drive/folders/1g0_-YhqvgCo6Z6x4tBu4Cwt-jp5orbcw).
+- Update the paths to the respective models in the function call of `train_ensemble` in `train.py`.
