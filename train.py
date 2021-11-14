@@ -515,22 +515,21 @@ def run_iterations(source, per_author):
         list_senders = [62]
 
     # start training
-    list_scores = []
-    accs = []
     for limit in list_senders:
         print("Number of authors: ", limit)
 
         # Select top N senders and build Train and Test
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=per_author)
 
-        #TF-IDF + LR
+        # TF-IDF + LR
         final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
         print("Training done, accuracy is : ", final_test_acc)
 
-        # # Style-based classifier
+        # Style-based classifier
         score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
         print("Training done, accuracy is : ", score_style)
 
+        # train the ensemble
         train_ensemble(nlp_train, nlp_test,
                     'ckpt/bert-base-cased/23_5auth_256tokens_hid512_epoch1_lr0.0001_bs8_drop0.4_acc0.41800.pt',        # bert
                     'ckpt/microsoft/deberta-base/22_5auth_372tokens_hid512_epoch5_lr1e-05_bs4_drop0.35_acc0.99513.pt', # deberta
@@ -568,14 +567,9 @@ def run_iterations(source, per_author):
                                                                                                   per_author=per_author)
 
         print("Training done, accuracy is : ", score_bert)
-        accs.append(score_bert)
-        print(bert_prob_train.shape)
-        print(bert_prob_test.shape)
-        print(bert_feat_train.shape)
-        print(bert_feat_test.shape)
 
         # # Character N-gram only
         score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
         print("Training done, accuracy is : ", score_char)
 
-    print(f'authors = {list_senders}, accs = {accs}')
+    print(f'authors = {list_senders}')
