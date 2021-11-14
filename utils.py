@@ -221,11 +221,8 @@ def plot_confusion_matrix_from_data(y_test, predictions, columns=None, annot=Tru
     from sklearn.metrics import confusion_matrix
     from pandas import DataFrame
 
-    #data
-    if(not columns):
-        #labels axis integer:
-        ##columns = range(1, len(np.unique(y_test))+1)
-        #labels axis string:
+    # data
+    if (not columns):
         from string import ascii_uppercase
         columns = ['class %s' %(i) for i in list(ascii_uppercase)[0:len(np.unique(y_test))]]
 
@@ -431,11 +428,15 @@ def load_dataset_dataframe(source):
     return df
 
 
-def build_train_test(df, limit):
+def build_train_test(df, limit, per_author=None):
     # Select top N senders and build Train and Test
     list_spk = list(pd.DataFrame(df['From'].value_counts()[:limit]).reset_index()['index'])
 
     sub_df = df[df['From'].isin(list_spk)]
+    if per_author is not None:
+        sub_df = sub_df.groupby('From').head(per_author).reset_index(drop=True)
+        print(f'build_train_test: only take the first {per_author} samples for each author')
+
     sub_df = sub_df[
         ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
          "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
