@@ -1,5 +1,6 @@
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 import torch
+import random
 
 
 class NumpyDataset(Dataset):
@@ -45,6 +46,70 @@ class BertDataset(Dataset):
         return len(self.y)
 
 
+class TrainSampler(Sampler):
+    def __init__(self, dataset, batch_size, sim_ratio=0.5):
+        super().__init__(None)
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.x = dataset.x
+        self.y = dataset.y
+        self.sim_ratio = sim_ratio
+        self.num_pos_samples = int(batch_size * sim_ratio)
+        print(f'train sampler with batch size = {batch_size} and postive sample ratio = {sim_ratio}')
+
+        self.length = len(list(self.__iter__()))
+
+    def __iter__(self):
+        indices = list(range(len(self.y)))
+        label_cluster = {}
+        for i in indices:
+            label = self.y[i].item()
+            if label not in label_cluster:
+                label_cluster[label] = []
+            label_cluster[label].append(i)
+        for key, value in label_cluster.items():
+            random.shuffle(value)
+
+        assert len(label_cluster[0]) > self.num_pos_samples, \
+            f"only {len(label_cluster[0])} samples in each class, but {self.num_pos_samples} pos samples needed"
+
+        # too time-consuming, i.e., O(|D||C|/|B|)s
+        batch_indices = []
+        flag = True
+        while flag:
+            # find a valid positive sample class
+            available_classes = list(filter(lambda x: len(label_cluster[x]) >= self.num_pos_samples,
+                                            list(range(max(self.y) + 1))))
+            if len(available_classes) == 0:
+                break
+            class_count = random.choice(available_classes)
+
+            # fill in positive samples
+            batch_indices.append(label_cluster[class_count][-self.num_pos_samples:])
+            del label_cluster[class_count][-self.num_pos_samples:]
+
+            # fill in negative samples
+            for i in range(self.batch_size - self.num_pos_samples):
+                available_classes = list(filter(lambda x: len(label_cluster[x]) > 0, list(range(max(self.y) + 1))))
+                if class_count in available_classes:
+                    available_classes.remove(class_count)
+                if len(available_classes) == 0:
+                    flag = False
+                    break
+                rand_class = random.choice(available_classes)
+                batch_indices[-1].append(label_cluster[rand_class].pop())
+
+            random.shuffle(batch_indices[-1])
+
+        random.shuffle(batch_indices)
+        all = sum(batch_indices, [])
+
+        return iter(all)
+
+    def __len__(self):
+        return self.length
+
+
 class EnsembleDataset(Dataset):
     def __init__(self, x_style, x_char, x_bert, y):
         super(EnsembleDataset, self).__init__()
@@ -58,6 +123,7 @@ class EnsembleDataset(Dataset):
 
     def __len__(self):
         return len(self.y)
+
 
 class TransformerEnsembleDataset(Dataset):
     def __init__(self, x, y, tokenizers, lengths):

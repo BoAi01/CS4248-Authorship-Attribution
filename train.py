@@ -277,7 +277,7 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
     test_x, test_y = test_x.toarray(), test_y.to_numpy()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 3, 1e-2, 32, torch.cuda.device_count(), 0.0
+    num_epochs, base_lr, base_bs, ngpus, dropout = 9, 1e-2, 32, torch.cuda.device_count(), 0.0
     in_dim, out_dim, hidden_dim = train_x.shape[1], test_y.max()+1, 20
     model = LogisticRegression(in_dim=in_dim, hid_dim=hidden_dim, out_dim=out_dim, dropout=dropout)
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
@@ -343,7 +343,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 6, 1e-5, 8, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 12, 1e-5, 8, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -354,7 +354,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
                           BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus,
+    coefficient, temperature, batch_pos_ratio = 0.9, 0.1, 0.4
+
+    from dataset import TrainSampler
+    sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
+    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=sampler, shuffle=False, num_workers=12 * ngpus,
                               pin_memory=True)
     test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
                              pin_memory=True)
@@ -370,15 +374,38 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
                                       pin_memory=True)
         train_acc = AverageMeter()
         train_loss = AverageMeter()
+        train_loss_1 = AverageMeter()
+        train_loss_2 = AverageMeter()
 
         model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred = model(x)
-            loss = criterion(pred, y.long())
+            pred, feats = model(x, return_feat=True)
+
+            loss_1 = criterion(pred, y.long())
+
+            mod = (feats * feats).sum(1) ** 0.5
+            feats = feats / mod.unsqueeze(1).expand(-1, feats.size(1))
+            sim_matrix = (torch.matmul(feats, feats.transpose(0, 1)) / temperature).exp()
+
+            loss_2 = 0.0
+            for i in range(out_dim):
+                intra_sim = sim_matrix[y == i, :][:, y == i].sum().log() if len(sim_matrix[y == i, :][:, y == i]) > 0 else torch.tensor(0.0).cuda()
+                extra_sim = sim_matrix[y == i, :][:, y != i].sum().log() if len(sim_matrix[y == i, :][:, y != i]) > 0 else torch.tensor(0.0).cuda()
+                loss_2 += extra_sim - intra_sim
+            # loss_2 = loss_2 / out_dim
+            loss = coefficient * loss_1 + (1 - coefficient) * loss_2
+
+            from math import isnan
+            if isnan(loss) or loss < -100:
+                import pdb
+                pdb.set_trace()
+
             train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
+            train_loss_1.update(loss_1.item())
+            train_loss_2.update(loss_2.item())
 
             loss.backward()
             optimizer.step()
@@ -386,9 +413,17 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
 
             pg.set_postfix({
                 'train acc': '{:.6f}'.format(train_acc.avg),
-                'train loss': '{:.6f}'.format(train_loss.avg),
+                'train L1': '{:.6f}'.format(train_loss_1.avg),
+                'train L2': '{:.6f}'.format(train_loss_2.avg),
+                'train L': '{:.6f}'.format(train_loss.avg),
                 'epoch': '{:03d}'.format(epoch)
             })
+
+        print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
+              'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
+
+        if epoch % 3 == 0:
+            continue
 
         model.eval()
         pg = tqdm(test_loader, leave=False, total=len(test_loader))
@@ -509,7 +544,7 @@ def run_iterations(source, per_author):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [5, 10, 25, 50, 75, 100]
+    list_senders = [5]
 
     if source == "imdb62":
         list_senders = [62]
@@ -521,13 +556,13 @@ def run_iterations(source, per_author):
         # Select top N senders and build Train and Test
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=per_author)
 
-        # TF-IDF + LR
-        final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
-        print("Training done, accuracy is : ", final_test_acc)
-
-        # Style-based classifier
-        score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
-        print("Training done, accuracy is : ", score_style)
+        # # TF-IDF + LR
+        # final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
+        # print("Training done, accuracy is : ", final_test_acc)
+        #
+        # # Style-based classifier
+        # score_style, style_prob_train, style_prob_test, style_feat_train, style_feat_test = train_style_based(nlp_train, nlp_test, return_features=True)
+        # print("Training done, accuracy is : ", score_style)
 
         # train the ensemble
         # train_ensemble(nlp_train, nlp_test,
@@ -563,13 +598,13 @@ def run_iterations(source, per_author):
         # Bert + Classification Layer
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
                                                                                                   return_features=True,
-                                                                                                  model_name='bert-base-cased',
+                                                                                                  model_name='microsoft/deberta-base',
                                                                                                   per_author=per_author)
 
         print("Training done, accuracy is : ", score_bert)
 
         # # Character N-gram only
-        score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
-        print("Training done, accuracy is : ", score_char)
+        # score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
+        # print("Training done, accuracy is : ", score_char)
 
     print(f'authors = {list_senders}')
