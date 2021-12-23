@@ -11,10 +11,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import NumpyDataset, TransformerEnsembleDataset
+from dataset import NumpyDataset, TransformerEnsembleDataset, TrainSamplerMultiClass, TrainSampler
 from models import AggregateFeatEnsemble, DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams, SimpleEnsemble, FixedWeightEnsemble
 from tqdm import tqdm
 import time
+import torch.nn.functional as F
+
 
 ckpt_dir = 'ckpt'
 
@@ -343,7 +345,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 12, 1e-5, 8, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 12, 1e-5, 4, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -354,12 +356,12 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
                           BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, batch_pos_ratio = 0.9, 0.1, 0.4
+    coefficient, temperature, batch_pos_ratio = 0.03, 0.1, 0.4
 
-    from dataset import TrainSampler
-    sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
+    # sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
+    sampler = TrainSamplerMultiClass(train_set, batch_size=base_bs * ngpus, num_classes=base_bs*ngpus//2)
     train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=sampler, shuffle=False, num_workers=12 * ngpus,
-                              pin_memory=True)
+                              pin_memory=True, drop_last=True)
     test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
                              pin_memory=True)
 
@@ -381,26 +383,47 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred, feats = model(x, return_feat=True)
-
-            loss_1 = criterion(pred, y.long())
-
-            mod = (feats * feats).sum(1) ** 0.5
-            feats = feats / mod.unsqueeze(1).expand(-1, feats.size(1))
-            sim_matrix = (torch.matmul(feats, feats.transpose(0, 1)) / temperature).exp()
-
-            loss_2 = 0.0
-            for i in range(out_dim):
-                intra_sim = sim_matrix[y == i, :][:, y == i].sum().log() if len(sim_matrix[y == i, :][:, y == i]) > 0 else torch.tensor(0.0).cuda()
-                extra_sim = sim_matrix[y == i, :][:, y != i].sum().log() if len(sim_matrix[y == i, :][:, y != i]) > 0 else torch.tensor(0.0).cuda()
-                loss_2 += extra_sim - intra_sim
-            # loss_2 = loss_2 / out_dim
-            loss = coefficient * loss_1 + (1 - coefficient) * loss_2
-
-            from math import isnan
-            if isnan(loss) or loss < -100:
+            try:
+                pred, feats = model(x, return_feat=True)
+            except:
                 import pdb
                 pdb.set_trace()
+
+            # classification loss
+            loss_1 = criterion(pred, y.long())
+
+            # compute sim matrix. Exactly correct.
+            # mod = (feats * feats).sum(1) ** 0.5
+            # feats = feats / mod.unsqueeze(1).expand(-1, feats.size(1))
+            # sim_matrix = (torch.matmul(feats, feats.transpose(0, 1)) / temperature).exp()
+
+            #
+            # loss_2 = 0.0
+            # for i in range(out_dim):
+            #     intra_sim = sim_matrix[y == i, :][:, y == i].sum().log() if len(sim_matrix[y == i, :][:, y == i]) > 0 else torch.tensor(0.0).cuda()
+            #     extra_sim = sim_matrix[y == i, :][:, y != i].sum().log() if len(sim_matrix[y == i, :][:, y != i]) > 0 else torch.tensor(0.0).cuda()
+            #     loss_2 += extra_sim - intra_sim
+            # loss_2 = loss_2 / out_dim
+
+            # a more elegant implementation of computing similarity matrix
+            sim_matrix = F.cosine_similarity(feats.unsqueeze(2).expand(-1, -1, feats.size(0)),
+                                             feats.unsqueeze(2).expand(-1, -1, feats.size(0)).transpose(0, 2),
+                                             dim=1)
+
+            # construct the target similarity matrix
+            target_matrix = torch.zeros(sim_matrix.shape).cuda()
+            for i in range(target_matrix.size(0)):
+                bool_mask = (y == y[i]).type(torch.float)
+                target_matrix[i] = bool_mask / (bool_mask.sum() + 1e-8)      # normalize s.t. sum up to 1.
+
+            # contrastive loss
+            loss_2 = F.kl_div(F.softmax(sim_matrix / temperature), target_matrix)
+
+            # total loss
+            loss = coefficient * loss_1 + (1 - coefficient) * loss_2
+
+            # import pdb
+            # pdb.set_trace()
 
             train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
@@ -422,7 +445,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
 
-        if epoch % 3 == 0:
+        if epoch % 3 != 0:
             continue
 
         model.eval()

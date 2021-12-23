@@ -110,6 +110,62 @@ class TrainSampler(Sampler):
         return self.length
 
 
+class TrainSamplerMultiClass(Sampler):
+    def __init__(self, dataset, batch_size, num_classes):
+        super().__init__(None)
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.x = dataset.x
+        self.y = dataset.y
+        self.num_classes = num_classes
+        assert batch_size // num_classes * num_classes == batch_size, \
+            f'batch size {batch_size} is not a multiple of num of classes {num_classes}'
+        print(f'train sampler with batch size = {batch_size} and {num_classes} classes in a batch')
+        self.length = len(list(self.__iter__()))
+
+    def __iter__(self):
+        indices = list(range(len(self.y)))
+        label_cluster = {}
+        for i in indices:
+            label = self.y[i].item()
+            if label not in label_cluster:
+                label_cluster[label] = []
+            label_cluster[label].append(i)
+        for key, value in label_cluster.items():
+            random.shuffle(value)
+
+        assert len(label_cluster) > self.num_classes, \
+            f'number of available classes {label_cluster} < required classes {self.num_classes}'
+
+        # too time-consuming, i.e., O(|D||C|/|B|)s
+        batch_indices = []
+        flag = True
+        while flag:
+            # find candidate classes
+            num_samples_per_class = self.batch_size // self.num_classes
+            available_classes = list(filter(lambda x: len(label_cluster[x]) >= num_samples_per_class,
+                                            list(range(max(self.y) + 1))))
+            if len(available_classes) < self.num_classes:
+                break
+            selected_classes = random.choices(available_classes, k=self.num_classes)
+            batch = []
+            for c in selected_classes:
+                batch.extend(label_cluster[c][-num_samples_per_class:])
+                del label_cluster[c][-num_samples_per_class:]
+            random.shuffle(batch)
+            batch_indices.append(batch)
+
+        random.shuffle(batch_indices)
+        # print(batch_indices)
+
+        all = sum(batch_indices, [])
+
+        return iter(all)
+
+    def __len__(self):
+        return self.length
+
+
 class EnsembleDataset(Dataset):
     def __init__(self, x_style, x_char, x_bert, y):
         super(EnsembleDataset, self).__init__()
