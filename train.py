@@ -345,7 +345,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 12, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 9, 1e-5, 6, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -359,16 +359,20 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     coefficient, temperature, batch_pos_ratio = 0.5, 0.1, 0.4
 
     # sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
-    sampler = TrainSamplerMultiClass(train_set, batch_size=base_bs * ngpus, num_classes=base_bs*ngpus//2)
-    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=sampler, shuffle=False, num_workers=12 * ngpus,
+    train_sampler = TrainSamplerMultiClass(train_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
+                                           samples_per_author=per_author)
+    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=train_sampler, shuffle=False, num_workers=4 * ngpus,
                               pin_memory=True, drop_last=True)
-    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
+    test_sampler = TrainSamplerMultiClass(test_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
+                                          samples_per_author=per_author//5)
+    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, sampler=test_sampler, shuffle=False, num_workers=4 * ngpus,
                              pin_memory=True)
 
     # training loop
     final_test_acc = None
     final_train_preds, final_test_preds = [], []
     train_feats, test_feats = [], []
+    best_acc = -1
 
     for epoch in range(num_epochs):
         if epoch == num_epochs - 1:
@@ -380,7 +384,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         train_loss_2 = AverageMeter()
 
         model.train()
-        pg = tqdm(train_loader, leave=False, total=len(train_loader))
+        pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=True)
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred, feats = model(x, return_feat=True)
@@ -451,7 +455,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         #     continue
 
         model.eval()
-        pg = tqdm(test_loader, leave=False, total=len(test_loader))
+        pg = tqdm(test_loader, leave=False, total=len(test_loader), disable=True)
         with torch.no_grad():
             test_acc = AverageMeter()
             for i, (x1, x2, x3, y) in enumerate(pg):
@@ -469,6 +473,8 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
+        best_acc = max(best_acc, test_acc.avg)
+
     # save checkpoint
     save_model(os.path.join(ckpt_dir, model_name),
                f'{id}_{out_dim}auth_{per_author}samples-per-auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
@@ -476,6 +482,8 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
 
     del model
     del train_loader, test_loader
+
+    print(f'Training complete after {num_epochs} epochs. Final acc = {final_test_acc}, best acc = {best_acc}')
 
     if return_features:
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
@@ -569,7 +577,7 @@ def run_iterations(source, per_author):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [10]
+    list_senders = [100]
 
     if source == "imdb62":
         list_senders = [62]
@@ -579,7 +587,7 @@ def run_iterations(source, per_author):
         print("Number of authors: ", limit)
 
         # Select top N senders and build Train and Test
-        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=per_author)
+        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=None)
 
         # # TF-IDF + LR
         # final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
