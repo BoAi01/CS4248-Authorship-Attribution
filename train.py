@@ -279,7 +279,7 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
     test_x, test_y = test_x.toarray(), test_y.to_numpy()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 9, 1e-2, 32, torch.cuda.device_count(), 0.0
+    num_epochs, base_lr, base_bs, ngpus, dropout = 9, 1e-5, 32, torch.cuda.device_count(), 0.0
     in_dim, out_dim, hidden_dim = train_x.shape[1], test_y.max()+1, 20
     model = LogisticRegression(in_dim=in_dim, hid_dim=hidden_dim, out_dim=out_dim, dropout=dropout)
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr*ngpus, weight_decay=1e-4)
