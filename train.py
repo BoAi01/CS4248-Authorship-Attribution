@@ -414,7 +414,8 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
                 target_matrix[i] = bool_mask
 
             # contrastive loss. for the input to kl div,
-            loss_2 = F.kl_div(F.softmax(sim_matrix / temperature).log(), target_matrix, reduction="batchmean")
+            loss_2 = F.kl_div(F.softmax(sim_matrix/temperature).log(), F.softmax(target_matrix/temperature),
+                              reduction="batchmean", log_target=False)
 
             # total loss
             loss = coefficient * loss_1 + (1 - coefficient) * loss_2
@@ -442,8 +443,8 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
 
-        if epoch % 3 != 0:
-            continue
+        # if epoch % 3 != 0:
+        #     continue
 
         model.eval()
         pg = tqdm(test_loader, leave=False, total=len(test_loader))
