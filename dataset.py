@@ -111,13 +111,14 @@ class TrainSampler(Sampler):
 
 
 class TrainSamplerMultiClass(Sampler):
-    def __init__(self, dataset, batch_size, num_classes):
+    def __init__(self, dataset, batch_size, num_classes, samples_per_author):
         super().__init__(None)
         self.dataset = dataset
         self.batch_size = batch_size
         self.x = dataset.x
         self.y = dataset.y
         self.num_classes = num_classes
+        self.samples_per_author = samples_per_author
         assert batch_size // num_classes * num_classes == batch_size, \
             f'batch size {batch_size} is not a multiple of num of classes {num_classes}'
         print(f'train sampler with batch size = {batch_size} and {num_classes} classes in a batch')
@@ -131,34 +132,70 @@ class TrainSamplerMultiClass(Sampler):
             if label not in label_cluster:
                 label_cluster[label] = []
             label_cluster[label].append(i)
-        for key, value in label_cluster.items():
-            random.shuffle(value)
 
         assert len(label_cluster) > self.num_classes, \
             f'number of available classes {label_cluster} < required classes {self.num_classes}'
 
-        # too time-consuming, i.e., O(|D||C|/|B|)s
-        batch_indices = []
-        flag = True
-        while flag:
-            # find candidate classes
-            num_samples_per_class = self.batch_size // self.num_classes
-            available_classes = list(filter(lambda x: len(label_cluster[x]) >= num_samples_per_class,
-                                            list(range(max(self.y) + 1))))
-            if len(available_classes) < self.num_classes:
-                break
-            selected_classes = random.choices(available_classes, k=self.num_classes)
-            batch = []
-            for c in selected_classes:
-                batch.extend(label_cluster[c][-num_samples_per_class:])
-                del label_cluster[c][-num_samples_per_class:]
-            random.shuffle(batch)
-            batch_indices.append(batch)
+        num_samples_per_class_batch = self.batch_size // self.num_classes
+        min_class_samples = min([len(x) for x in label_cluster.values()])
+        assert min_class_samples > self.samples_per_author, \
+            f"expected {self.samples_per_author} per author, but got {min_class_samples} in the dataset"
+        class_samples_needed = self.samples_per_author // num_samples_per_class_batch * num_samples_per_class_batch
 
-        random.shuffle(batch_indices)
-        # print(batch_indices)
+        dataset_matrix = []
+        for key, value in label_cluster.items():
+            random.shuffle(value)
+            # value = [key] * len(value)    # debugging use
+            dataset_matrix.append(torch.tensor(value[:class_samples_needed]).view(num_samples_per_class_batch, -1))
 
-        all = sum(batch_indices, [])
+        tuples = torch.cat(dataset_matrix, dim=1).transpose(1, 0).split(1, dim=0)
+        tuples = [x.flatten().tolist() for x in tuples]
+        random.shuffle(tuples)
+        all = sum(tuples, [])
+
+        # batch_slices = [list(x.transpose(0, 1).split(1, dim=0)) for x in batch_slices]        # a list of nested lists
+        # batch_slices = sum(batch_slices, [])    # a list of nested lists
+        # batch_slices = [x.flatten().tolist() for x in batch_slices]
+        #
+        #
+        # batch_slices = [x.tolist() for x in batch_slices]
+        #
+        # for batch in batch_slices:
+        #     random.shuffle(batch)
+        #
+        # import pdb
+        # pdb.set_trace()
+
+        # too time-consuming, i.e., O(|num of classes| + |||dataset size|/|batch size|)
+        # batch_indices = []
+        # while True:
+        #     # find candidate classes
+        #     num_samples_per_class = self.batch_size // self.num_classes
+        #     available_classes = list(filter(lambda x: len(label_cluster[x]) >= num_samples_per_class,
+        #                                     list(range(max(self.y) + 1))))
+        #     if len(available_classes) < self.num_classes:
+        #         break
+        #     selected_classes = random.choices(available_classes, k=self.num_classes)
+        #
+        #     # construct batch, O(batch size)
+        #     batch = []
+        #     for c in selected_classes:
+        #         for i in range(num_samples_per_class):
+        #             batch.append(label_cluster[c].pop())
+        #         # batch.extend(label_cluster[c][-num_samples_per_class:])
+        #         # del label_cluster[c][-num_samples_per_class:]
+        #     # random.shuffle(batch)
+        #
+        #     batch_indices.append(batch)
+        #     print(f'batch indices length {len(batch_indices)}')
+        #
+        # random.shuffle(batch_indices)
+
+        # all = sum(batch_slices, [])
+
+        print(f'from dataset sampler: batch size {self.batch_size}, num of classes in a batch {self.num_classes}, '
+              f'num of samples per author in total {self.samples_per_author} (specified) / {class_samples_needed} (true).'
+              f'dataset size {len(all)}')
 
         return iter(all)
 
