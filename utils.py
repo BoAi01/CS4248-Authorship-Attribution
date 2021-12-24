@@ -433,9 +433,12 @@ def build_train_test(df, limit, per_author=None):
     list_spk = list(pd.DataFrame(df['From'].value_counts()[:limit]).reset_index()['index'])
 
     sub_df = df[df['From'].isin(list_spk)]
+
     if per_author is not None:
-        sub_df = sub_df.groupby('From').head(per_author).reset_index(drop=True)
-        print(f'build_train_test: only take the first {per_author} samples for each author')
+        raise NotImplementedError()
+    # if per_author is not None:
+    #     sub_df = sub_df.groupby('From').head(per_author).reset_index(drop=True)
+    #     print(f'build_train_test: only take the first {per_author} samples for each author')
 
     sub_df = sub_df[
         ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
