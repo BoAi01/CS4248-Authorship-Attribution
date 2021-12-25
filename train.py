@@ -210,6 +210,7 @@ def train_model(model, train_set, train_loader, test_loader, criterion, schedule
 
     for epoch in range(num_epochs):
         if epoch == num_epochs - 1:
+            raise NotImplementedError()
             ngpus = torch.cuda.device_count()
             train_loader = DataLoader(train_set, batch_size=32 * ngpus, shuffle=False, num_workers=12 * ngpus,
                                       pin_memory=True)
@@ -376,9 +377,9 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     best_acc = -1
 
     for epoch in range(num_epochs):
-        if epoch == num_epochs - 1:
-            train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
-                                      pin_memory=True)
+        # if epoch == num_epochs - 1:
+        #     train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
+        #                               pin_memory=True)
         train_acc = AverageMeter()
         train_loss = AverageMeter()
         train_loss_1 = AverageMeter()
@@ -388,11 +389,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=True)
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            try:
-                pred, feats = model(x, return_feat=True)
-            except:
-                import pdb
-                pdb.set_trace()
+            pred, feats = model(x, return_feat=True)
 
             # classification loss
             loss_1 = criterion(pred, y.long())
