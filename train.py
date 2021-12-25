@@ -345,7 +345,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 9, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 15, 1e-5, 6, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -353,10 +353,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, verbose=True)
     train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
                           BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, batch_pos_ratio = 0.5, 0.1, 0.4
+    coefficient, temperature, batch_pos_ratio = 1.0, 0.1, 0.4
 
     # sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
     train_sampler = TrainSamplerMultiClass(train_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
@@ -366,7 +367,7 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     test_sampler = TrainSamplerMultiClass(test_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
                                           samples_per_author=per_author//5)
     test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, sampler=test_sampler, shuffle=False, num_workers=4 * ngpus,
-                             pin_memory=True)
+                             pin_memory=True, drop_last=True)
 
     # training loop
     final_test_acc = None
@@ -387,7 +388,11 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=True)
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred, feats = model(x, return_feat=True)
+            try:
+                pred, feats = model(x, return_feat=True)
+            except:
+                import pdb
+                pdb.set_trace()
 
             # classification loss
             loss_1 = criterion(pred, y.long())
@@ -458,16 +463,41 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         pg = tqdm(test_loader, leave=False, total=len(test_loader), disable=True)
         with torch.no_grad():
             test_acc = AverageMeter()
+            test_loss_1 = AverageMeter()
+            test_loss_2 = AverageMeter()
+            test_loss = AverageMeter()
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-                pred = model(x)
+                pred, feats = model(x, return_feat=True)
                 test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+
+                loss_1 = criterion(pred, y.long())
+                test_loss_1.update(loss_1.item())
+
+                # a more elegant implementation of computing similarity matrix
+                sim_matrix = F.cosine_similarity(feats.unsqueeze(2).expand(-1, -1, feats.size(0)),
+                                                 feats.unsqueeze(2).expand(-1, -1, feats.size(0)).transpose(0, 2),
+                                                 dim=1)
+
+                label_matrix = y.unsqueeze(-1).expand((y.shape[0], y.shape[0]))
+                trans_label_matrix = torch.transpose(label_matrix, 0, 1)
+                target_matrix = (label_matrix == trans_label_matrix).type(torch.float)
+
+                # contrastive loss. for the input to kl div,
+                loss_2 = F.kl_div(F.softmax(sim_matrix / temperature).log(), F.softmax(target_matrix / temperature),
+                                  reduction="batchmean", log_target=False)
+                test_loss_2.update(loss_2.item())
+
+                # total loss
+                loss = coefficient * loss_1 + (1 - coefficient) * loss_2
+                test_loss.update(loss.item())
 
                 pg.set_postfix({
                     'test acc': '{:.6f}'.format(test_acc.avg),
                     'epoch': '{:03d}'.format(epoch)
                 })
 
+        # scheduler.step(test_loss.avg)
         scheduler.step()
 
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
@@ -577,7 +607,7 @@ def run_iterations(source, per_author):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [100]
+    list_senders = [10]
 
     if source == "imdb62":
         list_senders = [62]
