@@ -11,15 +11,15 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import NumpyDataset, TransformerEnsembleDataset, TrainSamplerMultiClass, TrainSampler
+from torch.utils.tensorboard import SummaryWriter
+from dataset import NumpyDataset, TransformerEnsembleDataset, TrainSamplerMultiClass, TrainSampler, TrainSamplerMultiClassUnit
 from models import AggregateFeatEnsemble, DynamicWeightEnsemble, LogisticRegression, BertClassiferHyperparams, SimpleEnsemble, FixedWeightEnsemble
 from tqdm import tqdm
 import time
 import torch.nn.functional as F
+from contrastive_utils import compute_sim_matrix, compute_target_matrix, contrastive_loss
 
-
-ckpt_dir = 'ckpt'
-
+ckpt_dir = 'exp_data'
 
 
 def train_ensemble(nlp_train, nlp_test,
@@ -297,15 +297,13 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
                         num_epochs=num_epochs, base_lr=base_lr, base_bs=base_bs, model_name='tf_idf', out_dim=num_authors, dropout=dropout, hidden_dim=hidden_dim)
 
 
-def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
-               per_author=None):
+def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
+               id=None):
     print("#####")
     print("Training BERT")
     from models import LogisticRegression
     from dataset import BertDataset
     from models import BertClassifier
-
-    id = 28
 
     tokenizer, extractor = None, None
     if 'bert-base' in model_name:
@@ -342,11 +340,12 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     for param in extractor.parameters():
         param.requires_grad = True
 
+    # business logic
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 15, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 8, 1e-5, 6, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -358,16 +357,17 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
     train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
                           BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, batch_pos_ratio = 1.0, 0.1, 0.4
+    coefficient, temperature, sample_unit_size = 1.0, 0.1, 2
+    print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
-    # sampler = TrainSampler(train_set, batch_size=base_bs * ngpus, sim_ratio=batch_pos_ratio)
-    train_sampler = TrainSamplerMultiClass(train_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
-                                           samples_per_author=per_author)
+    # recorder
+    exp_dir = os.path.join(ckpt_dir, f'{id}_{model_name.split("/")[-1]}_coe{coefficient}_temp{temperature}_unit{sample_unit_size}_epoch{num_epochs}')
+    writer = SummaryWriter(os.path.join(exp_dir, 'board'))
+
+    train_sampler = TrainSamplerMultiClassUnit(train_set, sample_unit_size=sample_unit_size)
     train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=train_sampler, shuffle=False, num_workers=4 * ngpus,
                               pin_memory=True, drop_last=True)
-    test_sampler = TrainSamplerMultiClass(test_set, batch_size=base_bs * ngpus, num_classes=base_bs * ngpus // 2,
-                                          samples_per_author=per_author//5)
-    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, sampler=test_sampler, shuffle=False, num_workers=4 * ngpus,
+    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
                              pin_memory=True, drop_last=True)
 
     # training loop
@@ -386,52 +386,22 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         train_loss_2 = AverageMeter()
 
         model.train()
-        pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=True)
+        pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=tqdm_on)
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred, feats = model(x, return_feat=True)
+            print(y)
 
             # classification loss
             loss_1 = criterion(pred, y.long())
 
-            # compute sim matrix. Exactly correct.
-            # mod = (feats * feats).sum(1) ** 0.5
-            # feats = feats / mod.unsqueeze(1).expand(-1, feats.size(1))
-            # sim_matrix = (torch.matmul(feats, feats.transpose(0, 1)) / temperature).exp()
-
-            #
-            # loss_2 = 0.0
-            # for i in range(out_dim):
-            #     intra_sim = sim_matrix[y == i, :][:, y == i].sum().log() if len(sim_matrix[y == i, :][:, y == i]) > 0 else torch.tensor(0.0).cuda()
-            #     extra_sim = sim_matrix[y == i, :][:, y != i].sum().log() if len(sim_matrix[y == i, :][:, y != i]) > 0 else torch.tensor(0.0).cuda()
-            #     loss_2 += extra_sim - intra_sim
-            # loss_2 = loss_2 / out_dim
-
-            # a more elegant implementation of computing similarity matrix
-            sim_matrix = F.cosine_similarity(feats.unsqueeze(2).expand(-1, -1, feats.size(0)),
-                                             feats.unsqueeze(2).expand(-1, -1, feats.size(0)).transpose(0, 2),
-                                             dim=1)
-
-            # construct the target similarity matrix
-            # target_matrix = torch.zeros(sim_matrix.shape).cuda()
-            # for i in range(target_matrix.size(0)):
-            #     bool_mask = (y == y[i]).type(torch.float)
-            #     # target_matrix[i] = bool_mask / (bool_mask.sum() + 1e-8)      # normalize s.t. sum up to 1. Wrong, no need to norm!
-            #     target_matrix[i] = bool_mask
-
-            label_matrix = y.unsqueeze(-1).expand((y.shape[0], y.shape[0]))
-            trans_label_matrix = torch.transpose(label_matrix, 0, 1)
-            target_matrix = (label_matrix == trans_label_matrix).type(torch.float)
-
-            # contrastive loss. for the input to kl div,
-            loss_2 = F.kl_div(F.softmax(sim_matrix/temperature).log(), F.softmax(target_matrix/temperature),
-                              reduction="batchmean", log_target=False)
+            # contrastive learning
+            sim_matrix = compute_sim_matrix(feats)
+            target_matrix = compute_target_matrix(y)
+            loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature)
 
             # total loss
-            loss = coefficient * loss_1 + (1 - coefficient) * loss_2
-
-            # import pdb
-            # pdb.set_trace()
+            loss = loss_1 + coefficient * loss_2
 
             train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
@@ -453,11 +423,14 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
 
-        # if epoch % 3 != 0:
-        #     continue
+        # logger
+        writer.add_scalar("train/L1", train_loss_1.avg, epoch)
+        writer.add_scalar("train/L2", train_loss_2.avg, epoch)
+        writer.add_scalar("train/L", train_loss.avg, epoch)
+        writer.add_scalar("train/acc", train_acc.avg, epoch)
 
         model.eval()
-        pg = tqdm(test_loader, leave=False, total=len(test_loader), disable=True)
+        pg = tqdm(test_loader, leave=False, total=len(test_loader), disable=tqdm_on)
         with torch.no_grad():
             test_acc = AverageMeter()
             test_loss_1 = AverageMeter()
@@ -466,33 +439,35 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
                 pred, feats = model(x, return_feat=True)
-                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
 
+
+                # classification
                 loss_1 = criterion(pred, y.long())
-                test_loss_1.update(loss_1.item())
 
-                # a more elegant implementation of computing similarity matrix
-                sim_matrix = F.cosine_similarity(feats.unsqueeze(2).expand(-1, -1, feats.size(0)),
-                                                 feats.unsqueeze(2).expand(-1, -1, feats.size(0)).transpose(0, 2),
-                                                 dim=1)
-
-                label_matrix = y.unsqueeze(-1).expand((y.shape[0], y.shape[0]))
-                trans_label_matrix = torch.transpose(label_matrix, 0, 1)
-                target_matrix = (label_matrix == trans_label_matrix).type(torch.float)
-
-                # contrastive loss. for the input to kl div,
-                loss_2 = F.kl_div(F.softmax(sim_matrix / temperature).log(), F.softmax(target_matrix / temperature),
-                                  reduction="batchmean", log_target=False)
-                test_loss_2.update(loss_2.item())
+                # contrastive learning
+                sim_matrix = compute_sim_matrix(feats)
+                target_matrix = compute_target_matrix(y)
+                loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature)
 
                 # total loss
                 loss = coefficient * loss_1 + (1 - coefficient) * loss_2
+
+                # logger
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
                 test_loss.update(loss.item())
+                test_loss_1.update(loss_1.item())
+                test_loss_2.update(loss_2.item())
 
                 pg.set_postfix({
                     'test acc': '{:.6f}'.format(test_acc.avg),
                     'epoch': '{:03d}'.format(epoch)
                 })
+
+            # logger
+            writer.add_scalar("test/L1", test_loss_1.avg, epoch)
+            writer.add_scalar("test/L2", test_loss_2.avg, epoch)
+            writer.add_scalar("test/L", test_loss.avg, epoch)
+            writer.add_scalar("test/acc", test_acc.avg, epoch)
 
         # scheduler.step(test_loss.avg)
         scheduler.step()
@@ -503,14 +478,12 @@ def train_bert(nlp_train, nlp_test, return_features=True, model_name='microsoft/
         best_acc = max(best_acc, test_acc.avg)
 
     # save checkpoint
-    save_model(os.path.join(ckpt_dir, model_name),
-               f'{id}_{out_dim}auth_{per_author}samples-per-auth_{num_tokens}tokens_hid{hidden_dim}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
-               model)
+    save_model(exp_dir, f'{id}_acc{final_test_acc:.5f}.pt', model)
+
+    print(f'Training complete after {num_epochs} epochs. Final acc = {final_test_acc}, best acc = {best_acc}')
 
     del model
     del train_loader, test_loader
-
-    print(f'Training complete after {num_epochs} epochs. Final acc = {final_test_acc}, best acc = {best_acc}')
 
     if return_features:
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
@@ -600,7 +573,7 @@ def train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_feat
     return final_test_acc, final_train_preds, final_test_preds
 
 
-def run_iterations(source, per_author):
+def run_iterations(source, per_author, id, tqdm):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
@@ -657,9 +630,10 @@ def run_iterations(source, per_author):
 
         # Bert + Classification Layer
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
+                                                                                                  tqdm_on=tqdm,
                                                                                                   return_features=True,
                                                                                                   model_name='microsoft/deberta-base',
-                                                                                                  per_author=per_author)
+                                                                                                  id=id)
 
         print("Training done, accuracy is : ", score_bert)
 
