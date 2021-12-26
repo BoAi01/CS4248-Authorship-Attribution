@@ -463,14 +463,19 @@ def build_train_test(df, limit, per_author=None):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=0)
-    ind_train = list(ind[0].index)
-    ind_test = list(ind[1].index)
-
+    train_unseen = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'],
+                                    random_state=0)
+    ind_train = list(train_unseen[0].index)
     nlp_train = sub_df.loc[ind_train]
+
+    val_test = train_test_split(nlp_train[['content', 'Target']], test_size=0.5, stratify=nlp_train['Target'],
+                                random_state=0)
+    ind_val = list(val_test[0].index)
+    ind_test = list(val_test[1].index)
+    nlp_val = sub_df.loc[ind_val]
     nlp_test = sub_df.loc[ind_test]
 
-    return nlp_train, nlp_test, list_bigram, list_trigram
+    return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
 
 
 class AverageMeter(object):

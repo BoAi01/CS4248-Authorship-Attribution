@@ -297,8 +297,9 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
                         num_epochs=num_epochs, base_lr=base_lr, base_bs=base_bs, model_name='tf_idf', out_dim=num_authors, dropout=dropout, hidden_dim=hidden_dim)
 
 
-def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
+def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
                id=None):
+
     print("#####")
     print("Training BERT")
     from models import LogisticRegression
@@ -342,10 +343,11 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
 
     # business logic
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 8, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 1, 1e-5, 6, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -354,8 +356,10 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, verbose=True)
-    train_set, test_set = BertDataset(train_x, train_y, tokenizer, num_tokens), \
-                          BertDataset(test_x, test_y, tokenizer, num_tokens)
+
+    train_set = BertDataset(train_x, train_y, tokenizer, num_tokens)
+    val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
+    test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
 
     coefficient, temperature, sample_unit_size = 1.0, 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
@@ -365,8 +369,10 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
     writer = SummaryWriter(os.path.join(exp_dir, 'board'))
 
     train_sampler = TrainSamplerMultiClassUnit(train_set, sample_unit_size=sample_unit_size)
-    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=train_sampler, shuffle=False, num_workers=4 * ngpus,
-                              pin_memory=True, drop_last=True)
+    train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=train_sampler, shuffle=False,
+                              num_workers=4 * ngpus, pin_memory=True, drop_last=True)
+    val_loader = DataLoader(val_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
+                            pin_memory=True, drop_last=True)
     test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
                              pin_memory=True, drop_last=True)
 
@@ -386,11 +392,10 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
         train_loss_2 = AverageMeter()
 
         model.train()
-        pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=tqdm_on)
+        pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=not tqdm_on)
         for i, (x1, x2, x3, y) in enumerate(pg):
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred, feats = model(x, return_feat=True)
-            print(y)
 
             # classification loss
             loss_1 = criterion(pred, y.long())
@@ -430,7 +435,7 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
         writer.add_scalar("train/acc", train_acc.avg, epoch)
 
         model.eval()
-        pg = tqdm(test_loader, leave=False, total=len(test_loader), disable=tqdm_on)
+        pg = tqdm(val_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
         with torch.no_grad():
             test_acc = AverageMeter()
             test_loss_1 = AverageMeter()
@@ -439,7 +444,6 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
                 pred, feats = model(x, return_feat=True)
-
 
                 # classification
                 loss_1 = criterion(pred, y.long())
@@ -463,11 +467,11 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
                     'epoch': '{:03d}'.format(epoch)
                 })
 
-            # logger
-            writer.add_scalar("test/L1", test_loss_1.avg, epoch)
-            writer.add_scalar("test/L2", test_loss_2.avg, epoch)
-            writer.add_scalar("test/L", test_loss.avg, epoch)
-            writer.add_scalar("test/acc", test_acc.avg, epoch)
+        # logger
+        writer.add_scalar("test/L1", test_loss_1.avg, epoch)
+        writer.add_scalar("test/L2", test_loss_2.avg, epoch)
+        writer.add_scalar("test/L", test_loss.avg, epoch)
+        writer.add_scalar("test/acc", test_acc.avg, epoch)
 
         # scheduler.step(test_loss.avg)
         scheduler.step()
@@ -477,13 +481,24 @@ def train_bert(nlp_train, nlp_test, tqdm_on, return_features=True, model_name='m
 
         best_acc = max(best_acc, test_acc.avg)
 
-    # save checkpoint
-    save_model(exp_dir, f'{id}_acc{final_test_acc:.5f}.pt', model)
+    # test
+    model.eval()
+    pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
+    with torch.no_grad():
+        test_acc_2 = AverageMeter()
+        for i, (x1, x2, x3, y) in enumerate(pg):
+            x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
+            pred, feats = model(x, return_feat=True)
+            test_acc_2.update((pred.argmax(1) == y).sum().item() / len(y))
 
-    print(f'Training complete after {num_epochs} epochs. Final acc = {final_test_acc}, best acc = {best_acc}')
+    # save checkpoint
+    save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2:.5f}.pt', model)
+
+    print(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
+          f'Final test acc {test_acc_2.avg}')
 
     del model
-    del train_loader, test_loader
+    del train_loader, val_loader
 
     if return_features:
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
@@ -577,7 +592,7 @@ def run_iterations(source, per_author, id, tqdm):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [10]
+    list_senders = [10, 50]
 
     if source == "imdb62":
         list_senders = [62]
@@ -587,7 +602,7 @@ def run_iterations(source, per_author, id, tqdm):
         print("Number of authors: ", limit)
 
         # Select top N senders and build Train and Test
-        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=None)
+        nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=None)
 
         # # TF-IDF + LR
         # final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
@@ -629,7 +644,8 @@ def run_iterations(source, per_author, id, tqdm):
         #             ensemble_type="dynamic")    #"simple", "fixed", "dynamic", "aggregate"
 
         # Bert + Classification Layer
-        score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_test,
+        score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_val,
+                                                                                                  nlp_test,
                                                                                                   tqdm_on=tqdm,
                                                                                                   return_features=True,
                                                                                                   model_name='microsoft/deberta-base',
