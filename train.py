@@ -454,7 +454,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
                 loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature)
 
                 # total loss
-                loss = coefficient * loss_1 + (1 - coefficient) * loss_2
+                loss = loss_1 + coefficient * loss_2
 
                 # logger
                 test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
