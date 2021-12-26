@@ -203,6 +203,45 @@ class TrainSamplerMultiClass(Sampler):
         return self.length
 
 
+class TrainSamplerMultiClassUnit(Sampler):
+    def __init__(self, dataset, sample_unit_size):
+        super().__init__(None)
+        self.x = dataset.x
+        self.y = dataset.y
+        self.sample_unit_size = sample_unit_size
+        print(f'train sampler with sample unit size {sample_unit_size}')
+        self.length = len(list(self.__iter__()))
+
+    def __iter__(self):
+        indices = list(range(len(self.y)))
+        label_cluster = {}
+        for i in indices:
+            label = self.y[i].item()
+            if label not in label_cluster:
+                label_cluster[label] = []
+            label_cluster[label].append(i)
+
+        dataset_matrix = []
+        for key, value in label_cluster.items():
+            random.shuffle(value)
+            # value = [key] * len(value)    # debugging use
+            num_valid_samples = len(value) // self.sample_unit_size * self.sample_unit_size
+            dataset_matrix.append(torch.tensor(value[:num_valid_samples]).view(self.sample_unit_size, -1))
+
+        tuples = torch.cat(dataset_matrix, dim=1).transpose(1, 0).split(1, dim=0)
+        tuples = [x.flatten().tolist() for x in tuples]
+        random.shuffle(tuples)
+        all = sum(tuples, [])
+
+        print(f'from dataset sampler: original dataset size {len(self.y)}, resampled dataset size {len(all)}. '
+              f'sample unit size {self.sample_unit_size}')
+
+        return iter(all)
+
+    def __len__(self):
+        return self.length
+
+
 class EnsembleDataset(Dataset):
     def __init__(self, x_style, x_char, x_bert, y):
         super(EnsembleDataset, self).__init__()
