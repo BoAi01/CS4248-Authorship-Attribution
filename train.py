@@ -429,8 +429,8 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
 
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
-        logging.info('train acc: {:.6f}'.format(train_acc.avg) + 'train L1 {:.6f}'.format(train_loss_1.avg) +
-              'train L2 {:.6f}'.format(train_loss_2.avg) + 'train L {:.6f}'.format(train_loss.avg) + " " +  f'epoch {epoch}')
+        logging.info(f'epoch {epoch}, train acc {train_acc.avg}, train L1 {train_loss_1.avg}, train L2 {train_loss_2.avg}, train L {train_loss.avg}')
+        
 
         # logger
         writer.add_scalar("train/L1", train_loss_1.avg, epoch)
