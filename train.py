@@ -66,7 +66,7 @@ def train_ensemble(nlp_train, nlp_test,
     for extractor in extractors:
         for param in extractor.parameters():
             param.requires_grad = False
-
+            
     bertModel = BertClassifier(bertExtractor,
         LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
             bert_hyperparams.mlp_size, 5, dropout=0.0))
@@ -347,7 +347,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 8, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 15, 1e-5, 6, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     model = nn.DataParallel(model).cuda()
@@ -361,7 +361,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
     test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, sample_unit_size = 1.0, 0.1, 2
+    coefficient, temperature, sample_unit_size = 0.5, 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
     # recorder
@@ -592,7 +592,7 @@ def run_iterations(source, per_author, id, tqdm):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [10, 50]
+    list_senders = [50]
 
     if source == "imdb62":
         list_senders = [62]
@@ -602,7 +602,7 @@ def run_iterations(source, per_author, id, tqdm):
         print("Number of authors: ", limit)
 
         # Select top N senders and build Train and Test
-        nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, limit, per_author=None)
+        nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit, per_author=None)
 
         # # TF-IDF + LR
         # final_test_acc, final_train_preds, final_test_preds = train_tf_idf(nlp_train, nlp_test, num_authors=limit)
@@ -648,7 +648,7 @@ def run_iterations(source, per_author, id, tqdm):
                                                                                                   nlp_test,
                                                                                                   tqdm_on=tqdm,
                                                                                                   return_features=True,
-                                                                                                  model_name='microsoft/deberta-base',
+                                                                                                  model_name='bert-base-cased',
                                                                                                   id=id)
 
         print("Training done, accuracy is : ", score_bert)

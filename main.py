@@ -10,7 +10,7 @@ numpy.random.seed(0)
 torch.manual_seed(0)
 
 if __name__ == '__main__':
-    datasets = ['imdb62', 'enron', 'imdb', 'blog']
+    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training')
     parser.add_argument('--id', type=int, help='the id of the experiment')
