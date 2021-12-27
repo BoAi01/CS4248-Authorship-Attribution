@@ -19,8 +19,9 @@ import time
 import torch.nn.functional as F
 from contrastive_utils import compute_sim_matrix, compute_target_matrix, contrastive_loss
 
-ckpt_dir = 'exp_data'
+import logging
 
+ckpt_dir = 'exp_data'
 
 def train_ensemble(nlp_train, nlp_test,
                     bert_path, deberta_path, roberta_path, gpt2_path,
@@ -363,6 +364,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
 
     coefficient, temperature, sample_unit_size = 0.5, 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
+    logging.info(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
     # recorder
     exp_dir = os.path.join(ckpt_dir, f'{id}_{model_name.split("/")[-1]}_coe{coefficient}_temp{temperature}_unit{sample_unit_size}_epoch{num_epochs}')
@@ -427,6 +429,8 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
 
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
+        logging.info(f'epoch {epoch}, train acc {train_acc.avg}, train L1 {train_loss_1.avg}, train L2 {train_loss_2.avg}, train L {train_loss.avg}')
+        
 
         # logger
         writer.add_scalar("train/L1", train_loss_1.avg, epoch)
@@ -477,6 +481,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
         scheduler.step()
 
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
+        logging.info(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
         best_acc = max(best_acc, test_acc.avg)
@@ -495,6 +500,8 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}.pt', model)
 
     print(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
+          f'Final test acc {test_acc_2.avg}')
+    logging.info(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
           f'Final test acc {test_acc_2.avg}')
 
     del model
@@ -592,7 +599,12 @@ def run_iterations(source, per_author, id, tqdm):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [50]
+    list_senders = [10, 50]
+    
+    logging.basicConfig(filename="Log_id_" + str(id) + "_.txt",
+                level=logging.INFO,
+                format='%(levelname)s: %(asctime)s %(message)s',
+                datefmt='%m/%d/%Y %I:%M:%S')
 
     if source == "imdb62":
         list_senders = [62]
@@ -600,6 +612,7 @@ def run_iterations(source, per_author, id, tqdm):
     # start training
     for limit in list_senders:
         print("Number of authors: ", limit)
+        logging.info("Number of authors: " + str(limit))
 
         # Select top N senders and build Train and Test
         nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit, per_author=None)
@@ -652,6 +665,7 @@ def run_iterations(source, per_author, id, tqdm):
                                                                                                   id=id)
 
         print("Training done, accuracy is : ", score_bert)
+        logging.info("Training done, accuracy is : " + str(score_bert))
 
         # # Character N-gram only
         # score_char, char_prob_train, char_prob_test, char_feat_train, char_feat_test = train_char_ngram(nlp_train, nlp_test, list_bigram, list_trigram, return_features=True)
