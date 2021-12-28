@@ -494,7 +494,7 @@ def build_train_test(df, source, limit, per_author=None):
                                     random_state=0)
         ind_train = list(train_valid[0].index)
         nlp_train = full_train.loc[ind_train]
-        ind_val = list(train_valid[0].index)
+        ind_val = list(train_valid[1].index)
         nlp_val = full_train.loc[ind_val]
 
         full_test = sub_df[sub_df["train"] == 0]
