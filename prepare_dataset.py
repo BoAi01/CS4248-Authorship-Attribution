@@ -10,7 +10,9 @@ datasets = {
     'full_imdb62.csv': 'https://drive.google.com/uc?id=1neOw0rwXzEL4g-EaqaqJ1-jIGCFhDfZn&export=download',
     'full_imdb_feat.csv': 'https://drive.google.com/uc?id=1v88KYh4UI8m2rNVjXY0gXOsTFhLXU96F&export=download',
     # 'blogtext.csv': 'https://drive.google.com/uc?id=1iZyaXG_M6vUjH1-uLSBnVAGCJyLodhgB&export=download',
-    # 'full_blog.csv': 'https://drive.google.com/uc?id=1V8R3ZzH_hb97EOsT5BXECcEkgGU9NBkf&export=download'
+    # 'full_blog.csv': 'https://drive.google.com/uc?id=1V8R3ZzH_hb97EOsT5BXECcEkgGU9NBkf&export=download',
+    'ccat50-auth-index.csv': 'https://drive.google.com/u/1/uc?id=1GbdvD9eRnhUiFM8HhpEJyhTt3wBx0X70&export=download',
+    'full_ccat50_feat.csv': 'https://drive.google.com/u/1/uc?id=1Cox3mxD6lOE6YYhTn4AFrOyHTCsA8DUX&export=download'
 }
 
 dataset_dir = 'datasets'
