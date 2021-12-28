@@ -17,6 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=str, help='the cuda devices used for training', default="0,1,2,3")
     parser.add_argument('--tqdm', type=bool, help='whether tqdm is on', default=False)
     parser.add_argument('--samples-per-author', type=int, help='number of samples per author', default=None)
+    parser.add_argument('--test', type=bool, help='whether test mode is on', default=False)
 
     args = parser.parse_args()
     if args.samples_per_author is not None:
