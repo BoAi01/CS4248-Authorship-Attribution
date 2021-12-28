@@ -362,7 +362,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
     test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, sample_unit_size = 0.5, 0.1, 2
+    coefficient, temperature, sample_unit_size = 0, 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
     logging.info(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
@@ -599,7 +599,7 @@ def run_iterations(source, per_author, id, tqdm):
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
 
-    list_senders = [10, 50]
+    list_senders = [50]
     
     logging.basicConfig(filename="Log_id_" + str(id) + "_.txt",
                 level=logging.INFO,

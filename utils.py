@@ -489,12 +489,12 @@ def build_train_test(df, source, limit, per_author=None):
 
 
     if source == 'ccat50':
-        full_train = sub_df[sub_df["train"]  == 1]
+        full_train = sub_df[sub_df["train"] == 1]
         train_valid = train_test_split(full_train[['content', 'Target']], test_size=0.2, stratify=full_train['Target'],
                                     random_state=0)
         ind_train = list(train_valid[0].index)
         nlp_train = full_train.loc[ind_train]
-        ind_val = list(train_valid[0].index)
+        ind_val = list(train_valid[1].index)
         nlp_val = full_train.loc[ind_val]
 
         full_test = sub_df[sub_df["train"] == 0]
