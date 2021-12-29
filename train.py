@@ -298,7 +298,7 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
                         num_epochs=num_epochs, base_lr=base_lr, base_bs=base_bs, model_name='tf_idf', out_dim=num_authors, dropout=dropout, hidden_dim=hidden_dim)
 
 
-def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, test_mode, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
+def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, model_name='microsoft/deberta-base', embed_len=768,
                id=None):
 
     print("#####")
@@ -379,35 +379,6 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, test_mode, return_features
     test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
                              pin_memory=True, drop_last=True)
     
-    if test_mode: # test for predictions only
-        
-        model.eval()
-        pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
-        output_list = torch.randn((6,10)).cuda()
-        feature_list = torch.randn((6, 100)).cuda()
-        label_list = []
-        m = torch.nn.AvgPool2d((1, 2000), stride=(1, 1950))
-        with torch.no_grad():
-            test_acc_2 = AverageMeter()
-            for i, (x1, x2, x3, y) in enumerate(pg):
-                x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-                pred, feats = model(x, return_feat=True)
-                condensed_feats = m(feats.unsqueeze(0)).squeeze(0)
-                if i == 0:
-                    output_list = pred
-                    feature_list = condensed_feats
-                    label_list = [y]
-                else:
-                    output_list = torch.vstack((output_list, pred))
-                    feature_list = torch.vstack((feature_list, condensed_feats))
-                    label_list.append(y)
-
-        torch.save(output_list, "output_list.pt")
-        torch.save(label_list,"label_list.pt")
-        torch.save(feature_list, "feature_list.pt")
-        
-        return
-
     # training loop
     final_test_acc = None
     final_train_preds, final_test_preds = [], []
@@ -689,12 +660,10 @@ def run_iterations(source, per_author, id, tqdm):
         # Bert + Classification Layer
         score_bert, bert_prob_train, bert_prob_test, bert_feat_train, bert_feat_test = train_bert(nlp_train, nlp_val,
                                                                                                   nlp_test,
-                                                                                                  tqdm_on=tqdm, test_mode=test,
+                                                                                                  tqdm_on=tqdm,
                                                                                                   return_features=True,
                                                                                                   model_name='bert-base-cased',
                                                                                                   id=id)
-        if test:
-            return
           
         print("Training done, accuracy is : ", score_bert)
         logging.info("Training done, accuracy is : " + str(score_bert))
