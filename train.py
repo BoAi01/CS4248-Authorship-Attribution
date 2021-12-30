@@ -348,7 +348,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 15, 1e-5, 6, torch.cuda.device_count(), 0.35
+    num_epochs, base_lr, base_bs, ngpus, dropout = 5, 1e-5, 1, torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     # model.load_state_dict(torch.load("0_deberta-base_coe1.0")) #load trained model
@@ -363,7 +363,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
     test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, sample_unit_size = 0, 0.1, 2
+    coefficient, temperature, sample_unit_size = 1.0, 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
     logging.info(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
@@ -394,19 +394,35 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
         train_loss_1 = AverageMeter()
         train_loss_2 = AverageMeter()
 
+        # bad_classes = [16, 25, 39, 44, 48]
+        bad_classes = [50]
+
         model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=not tqdm_on)
-        for i, (x1, x2, x3, y) in enumerate(pg):
+        for i, (x1, x2, x3, y) in enumerate(pg):            # for x1, x2, x3, y in train_set:
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred, feats = model(x, return_feat=True)
+            pred, feats = model(x, return_contra_feat=True)
+
+            # generate the mask
+            mask = y.clone().cpu().apply_(lambda x: x not in bad_classes).type(torch.bool).cuda()
+            pred = pred[mask]
+            y_2 = y[mask]
 
             # classification loss
-            loss_1 = criterion(pred, y.long())
+            loss_1 = criterion(pred, y_2.long())
+
+            # generate the mask
+            # mask = y.clone().cpu().apply_(lambda x: x not in bad_classes).type(torch.bool).cuda()
+            # feats = feats[mask]
+            # y_2 = y[mask]
+
+            # import pdb
+            # pdb.set_trace()
 
             # contrastive learning
             sim_matrix = compute_sim_matrix(feats)
             target_matrix = compute_target_matrix(y)
-            loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature)
+            loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature, y)
 
             # total loss
             loss = loss_1 + coefficient * loss_2
@@ -430,8 +446,8 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
 
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
-        logging.info(f'epoch {epoch}, train acc {train_acc.avg}, train L1 {train_loss_1.avg}, train L2 {train_loss_2.avg}, train L {train_loss.avg}')
-        
+        logging.info(f'epoch {epoch}, train acc {train_acc.avg}, train L1 {train_loss_1.avg}, '
+                     f'train L2 {train_loss_2.avg}, train L {train_loss.avg}')
 
         # logger
         writer.add_scalar("train/L1", train_loss_1.avg, epoch)
@@ -448,7 +464,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
             test_loss = AverageMeter()
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-                pred, feats = model(x, return_feat=True)
+                pred, feats = model(x, return_contra_feat=True)
 
                 # classification
                 loss_1 = criterion(pred, y.long())
@@ -456,7 +472,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
                 # contrastive learning
                 sim_matrix = compute_sim_matrix(feats)
                 target_matrix = compute_target_matrix(y)
-                loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature)
+                loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature, y)
 
                 # total loss
                 loss = loss_1 + coefficient * loss_2

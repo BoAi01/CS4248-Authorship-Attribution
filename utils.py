@@ -446,8 +446,7 @@ def load_dataset_dataframe(source):
 
 def build_train_test(df, source, limit, per_author=None):
     # Select top N senders and build Train and Test
-    list_spk = list(pd.DataFrame(df['From'].value_counts()[:limit]).reset_index()['index'])
-
+    list_spk = list(pd.DataFrame(df['From'].value_counts().iloc[:limit]).reset_index()['index'])
     sub_df = df[df['From'].isin(list_spk)]
 
     if per_author is not None:
