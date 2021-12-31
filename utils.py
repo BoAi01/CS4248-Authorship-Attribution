@@ -2,6 +2,7 @@
 import os
 from collections import Counter
 import heapq
+import torch
 
 # Visualization
 import matplotlib.font_manager as fm
@@ -20,14 +21,6 @@ nltk.download('punkt')
 
 # Feature extraction
 from sklearn.feature_extraction.text import TfidfVectorizer
-
-# Classification
-# from sklearn.linear_model import LogisticRegression
-from simpletransformers.classification import ClassificationModel
-
-# # Parallelize apply on Pandas
-from pandarallel import pandarallel
-pandarallel.initialize()
 
 # Evaluation
 from sklearn.metrics import accuracy_score
@@ -228,11 +221,8 @@ def plot_confusion_matrix_from_data(y_test, predictions, columns=None, annot=Tru
     from sklearn.metrics import confusion_matrix
     from pandas import DataFrame
 
-    #data
-    if(not columns):
-        #labels axis integer:
-        ##columns = range(1, len(np.unique(y_test))+1)
-        #labels axis string:
+    # data
+    if (not columns):
         from string import ascii_uppercase
         columns = ['class %s' %(i) for i in list(ascii_uppercase)[0:len(np.unique(y_test))]]
 
@@ -386,10 +376,13 @@ def load_dataset_dataframe(source):
         "imdb": 'full_imdb_feat.csv',
         "imdb62": 'full_imdb62.csv',
         "blog": 'full_blog.csv',
+        "ccat50": "full-ccat-new-neg.csv"
     }
-    df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
+
+    df = None
 
     if source == "enron":
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
         df['name'] = df['From'].apply(lambda x: x.split("'")[1].split(".")[0])
         df['name_in_mail'] = df.apply(lambda x: is_name_in_email(x['name'], x['content']), axis=1)
         df = df[df['name_in_mail'] == 0]
@@ -400,29 +393,84 @@ def load_dataset_dataframe(source):
         df.to_csv(os.path.join(dataset_path, 'full_enron2.csv'))
 
     elif source == "imdb":
-        df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb_feat.csv'), index_col=0)
+        feat_path = os.path.join(dataset_dir, "full_imdb_feat.csv")
+        if os.path.isfile(feat_path):
+            df = pd.read_csv(feat_path, index_col=0)
+        else:
+            # # Parallelize apply on Pandas
+            from pandarallel import pandarallel
+            pandarallel.initialize()
+
+            df = pd.read_csv(os.path.join(dataset_dir, 'full_imdb.csv'), index_col=0)
+            print("drop rows!!!!!!!!!!!!!")
+            drop_count = 0
+            for index, row in df.iterrows():
+                # print(row['content'])
+                if len(str(row['content'])) <= 3:
+                    df.drop(index, inplace=True)
+                    drop_count += 1
+            print(f"dropped {drop_count} rows")
+            print(df.shape)
+            df['content_tfidf'] = df['content'].parallel_apply(lambda x: process(x))
+            df[["avg_len", "len_text", "len_words", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d",
+                "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s",
+                "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7",
+                "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9",
+                "f_e_10", "f_e_11", "richness"]] = df['content'].parallel_apply(lambda x: extract_style(x))
+            df.to_csv(feat_path)
 
     elif source == "imdb62":
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
         df = pd.read_csv(os.path.join(dataset_dir, "full_imdb62.csv"), index_col=0)
 
     elif source == "blog":
-        df = pd.read_csv(os.path.join(dataset_dir, 'full_blog.csv'))
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
 
+    elif source == "ccat50":
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
+        # feat_path = os.path.join(dataset_dir, "full_ccat50_feat.csv")
+        # if os.path.isfile(feat_path):
+        #     df = pd.read_csv(feat_path, index_col=0)
+        # else:
+        #     df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
+        #     from pandarallel import pandarallel
+        #     pandarallel.initialize()
+        #     df['content_tfidf'] = df['content'].parallel_apply(lambda x: process(x))
+        #     df[["avg_len", "len_text", "len_words", "num_short_w", "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d",
+        #             "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s",
+        #             "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7",
+        #             "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9",
+        #             "f_e_10", "f_e_11", "richness"]] = df['content'].parallel_apply(lambda x: extract_style(x))
+        # df.to_csv(feat_path)
     return df
 
 
-def build_train_test(df, limit):
+def build_train_test(df, source, limit, per_author=None):
     # Select top N senders and build Train and Test
-    list_spk = list(pd.DataFrame(df['From'].value_counts()[:limit]).reset_index()['index'])
-
+    list_spk = list(pd.DataFrame(df['From'].value_counts().iloc[:limit]).reset_index()['index'])
     sub_df = df[df['From'].isin(list_spk)]
-    sub_df = sub_df[
-        ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
+
+    if per_author is not None:
+        raise NotImplementedError()
+    # if per_author is not None:
+    #     sub_df = sub_df.groupby('From').head(per_author).reset_index(drop=True)
+    #     print(f'build_train_test: only take the first {per_author} samples for each author')
+
+    if source == 'ccat50':
+         sub_df = sub_df[
+        ['From', 'content', 'train', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
          "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
          "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
          "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
          "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"]]
-    sub_df = sub_df.dropna()
+    else:
+        sub_df = sub_df[
+            ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
+            "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
+            "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
+            "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
+            "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"]]
+    # sub_df = sub_df.dropna()
 
     text = " ".join(sub_df['content'].values)
     list_bigram = return_best_bi_grams(text)
@@ -439,14 +487,33 @@ def build_train_test(df, limit):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'])
-    ind_train = list(ind[0].index)
-    ind_test = list(ind[1].index)
 
-    nlp_train = sub_df.loc[ind_train]
-    nlp_test = sub_df.loc[ind_test]
+    if source == 'ccat50':
+        full_train = sub_df[sub_df["train"] == 1]
+        train_valid = train_test_split(full_train[['content', 'Target']], test_size=0.2, stratify=full_train['Target'],
+                                    random_state=0)
+        ind_train = list(train_valid[0].index)
+        nlp_train = full_train.loc[ind_train]
+        ind_val = list(train_valid[1].index)
+        nlp_val = full_train.loc[ind_val]
 
-    return nlp_train, nlp_test, list_bigram, list_trigram
+        full_test = sub_df[sub_df["train"] == 0]
+        nlp_test = full_test[['content', 'Target']]
+    else:
+
+        train_unseen = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'],
+                                    random_state=0)
+        ind_train = list(train_unseen[0].index)
+        nlp_train = sub_df.loc[ind_train]
+
+        val_test = train_test_split(nlp_train[['content', 'Target']], test_size=0.5, stratify=nlp_train['Target'],
+                                random_state=0)
+        ind_val = list(val_test[0].index)
+        ind_test = list(val_test[1].index)
+        nlp_val = sub_df.loc[ind_val]
+        nlp_test = sub_df.loc[ind_test]
+
+    return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
 
 
 class AverageMeter(object):
@@ -470,3 +537,31 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
+def save_model(ckpt_dir, cp_name, model):
+    """
+    Create directory /Checkpoint under exp_data_path and save encoder as cp_name
+    """
+    os.makedirs(ckpt_dir, exist_ok=True)
+    saving_model_path = os.path.join(ckpt_dir, cp_name)
+    if isinstance(model, torch.nn.DataParallel):
+        model = model.module  # convert to non-parallel form
+    torch.save(model.state_dict(), saving_model_path)
+    print(f'Model saved: {saving_model_path}')
+
+
+def load_model_dic(model, ckpt_path, verbose=True, strict=True):
+    """
+    Load weights to model and take care of weight parallelism
+    """
+    assert os.path.exists(ckpt_path), f"trained model {ckpt_path} does not exist"
+
+    try:
+        model.load_state_dict(torch.load(ckpt_path), strict=strict)
+    except:
+        state_dict = torch.load(ckpt_path)
+        state_dict = {k.partition('module.')[2]: state_dict[k] for k in state_dict.keys()}
+        model.load_state_dict(state_dict, strict=strict)
+    if verbose:
+        print(f'Model loaded: {ckpt_path}')
+
+    return model
