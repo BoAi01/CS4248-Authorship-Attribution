@@ -400,7 +400,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
         model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=not tqdm_on)
         for i, (x1, x2, x3, y) in enumerate(pg):            # for x1, x2, x3, y in train_set:
-            if not True in (y == 50).tolist():
+            if not False in (y == 50).tolist():
                 continue
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
             pred, feats = model(x, return_feat=True)
@@ -465,7 +465,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
             test_loss_2 = AverageMeter()
             test_loss = AverageMeter()
             for i, (x1, x2, x3, y) in enumerate(pg):
-                if not True in (y == 50).tolist():
+                if not False in (y == 50).tolist():
                     continue
 
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()

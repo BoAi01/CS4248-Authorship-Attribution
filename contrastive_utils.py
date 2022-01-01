@@ -40,9 +40,9 @@ def compute_target_matrix(labels):
 def contrastive_loss(pred_sim_matrix, target_matrix, temperature, labels):
     # set class 50 to all negative
     syn_class = 50
-    target_matrix[labels == syn_class] = target_matrix[labels == syn_class] / 10
-    target_matrix[:, labels == syn_class] = target_matrix[:, labels == syn_class] / 10
-    pred_sim_matrix[labels == syn_class] = pred_sim_matrix[labels == syn_class] / 10
-    pred_sim_matrix[:, labels == syn_class] = pred_sim_matrix[:, labels == syn_class] / 10
+    target_matrix[labels == syn_class] = target_matrix[labels == syn_class] / 1000
+    target_matrix[:, labels == syn_class] = target_matrix[:, labels == syn_class] / 1000
+    pred_sim_matrix[labels == syn_class] = pred_sim_matrix[labels == syn_class] / 1000
+    pred_sim_matrix[:, labels == syn_class] = pred_sim_matrix[:, labels == syn_class] / 1000
     return F.kl_div(F.softmax(pred_sim_matrix/temperature).log(), F.softmax(target_matrix/temperature),
                     reduction="batchmean", log_target=False)
