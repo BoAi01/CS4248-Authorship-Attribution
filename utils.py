@@ -486,7 +486,6 @@ def build_train_test(df, source, limit, per_author=None):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-
     if source == 'ccat50':
         full_train = sub_df[sub_df["train"] == 1]
         train_valid = train_test_split(full_train[['content', 'Target']], test_size=0.2, stratify=full_train['Target'],

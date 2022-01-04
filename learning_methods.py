@@ -29,7 +29,6 @@ import logging
 ckpt_dir = 'exp_data'
 
 def train_ensemble(nlp_train, nlp_test,
-                    bert_path, deberta_path, roberta_path, gpt2_path,
                     bert_hyperparams : BertClassiferHyperparams, deberta_hyperparams : BertClassiferHyperparams,
                     roberta_hyperparams : BertClassiferHyperparams, gpt2_hyperparams : BertClassiferHyperparams,
                     num_epochs, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
@@ -54,9 +53,12 @@ def train_ensemble(nlp_train, nlp_test,
     ensemble_test_set = TransformerEnsembleDataset(test_x, test_y,
         [bertTokenizer, debertaTokenizer, robertaTokenizer, gpt2Tokenizer],
         [bert_hyperparams.token_len, deberta_hyperparams.token_len, roberta_hyperparams.token_len, gpt2_hyperparams.token_len])
+    train_sampler = TrainSamplerMultiClassUnit(ensemble_train_set, sample_unit_size=2)
 
-    ensemble_train_loader, ensemble_test_loader = DataLoader(ensemble_train_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True), \
-                                                  DataLoader(ensemble_test_set, batch_size=base_bs * ngpus, shuffle=True, num_workers=12 * ngpus, pin_memory=True)
+    ensemble_train_loader = DataLoader(ensemble_train_set, batch_size=base_bs * ngpus, sampler=train_sampler,
+                                       shuffle=False, num_workers=12 * ngpus, pin_memory=True)
+    ensemble_test_loader = DataLoader(ensemble_test_set, batch_size=base_bs * ngpus, shuffle=True,
+                                      num_workers=12 * ngpus, pin_memory=True)
 
     bertExtractor = BertModel.from_pretrained('bert-base-cased')
     debertaExtractor = DebertaModel.from_pretrained('microsoft/deberta-base')
@@ -66,9 +68,9 @@ def train_ensemble(nlp_train, nlp_test,
     extractors = [bertExtractor, debertaExtractor, robertaExtractor, gpt2Extractor]
 
     # Freeze all extractor params
-    # for extractor in extractors:
-    #     for param in extractor.parameters():
-    #         param.requires_grad = False
+    for extractor in extractors:
+        for param in extractor.parameters():
+            param.requires_grad = True
             
     bertModel = BertClassifier(bertExtractor,
         LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
@@ -83,13 +85,8 @@ def train_ensemble(nlp_train, nlp_test,
         LogisticRegression(gpt2_hyperparams.embed_len * gpt2_hyperparams.token_len,
             gpt2_hyperparams.mlp_size, 5, dropout=0.2))
 
-    bertModel = load_model_dic(bertModel, bert_path)
-    debertaModel = load_model_dic(debertaModel, deberta_path)
-    robertaModel = load_model_dic(robertaModel, roberta_path)
-    gpt2Model = load_model_dic(gpt2Model, gpt2_path)
-
-    for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
-        model = nn.DataParallel(model).cuda()
+    # for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+    #     # model = nn.DataParallel(model).cuda()
 
     final_test_acc = None
     if "simple" in ensemble_type:
@@ -121,19 +118,19 @@ def train_ensemble(nlp_train, nlp_test,
                                             768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len),
                                             hidden_len=mlp_size) \
                     if "dynamic" in ensemble_type else \
-                    AggregateFeatEnsemble([bertModel, debertaModel, robertaModel, gpt2Model],
-                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len),
+                    AggregateFeatEnsemble([bertModel, debertaModel],    #, robertaModel
+                                            768 * (bert_hyperparams.token_len + deberta_hyperparams.token_len),    #  + roberta_hyperparams.token_len
                                             num_classes=num_authors,
                                             hidden_len=mlp_size) \
                     if "aggregate" in ensemble_type else \
                     FixedWeightEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
 
-    ensembleModel = nn.DataParallel(ensembleModel).cuda()
-
     # training loop
-    optimizer = torch.optim.AdamW(params=ensembleModel.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
+    optimizer = torch.optim.AdamW(params=ensembleModel.nn.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
+    ensembleModel = nn.DataParallel(ensembleModel).cuda()
 
     for epoch in range(num_epochs):
         if epoch == num_epochs - 1:
@@ -147,10 +144,10 @@ def train_ensemble(nlp_train, nlp_test,
             x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
             x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
             x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
-            x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
-            x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+            # x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
+            # x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
             y = y.cuda()
-            pred = ensembleModel([x1, x2, x3, x4])
+            pred = ensembleModel([x1, x2])  # x2, x3
             loss = criterion(pred, y.long())
             train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
             train_loss.update(loss.item())
@@ -173,10 +170,10 @@ def train_ensemble(nlp_train, nlp_test,
                 x1, x2, x3, x4 = x[0], x[1], x[2], x[3]
                 x1 = (x1[0].cuda(), x1[1].cuda(), x1[2].cuda())
                 x2 = (x2[0].cuda(), x2[1].cuda(), x2[2].cuda())
-                x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
-                x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
+                # x3 = (x3[0].cuda(), x3[1].cuda(), x3[2].cuda())
+                # x4 = (x4[0].cuda(), x4[1].cuda(), x4[2].cuda())
                 y = y.cuda()
-                pred = ensembleModel([x1, x2, x3, x4])
+                pred = ensembleModel([x1, x2])  # x2, x3
                 test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
 
                 pg.set_postfix({
