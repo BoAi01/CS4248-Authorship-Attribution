@@ -151,7 +151,7 @@ class AggregateFeatEnsemble(nn.Module):
 
     def __init__(self, components, total_feat_len, num_classes, dropout=0.2, hidden_len=256):
         super(AggregateFeatEnsemble, self).__init__()
-        self.components = components
+        self.components = nn.ModuleList(components)
         self.nn = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(total_feat_len, hidden_len, bias=True),
@@ -159,8 +159,9 @@ class AggregateFeatEnsemble(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_len, num_classes, bias=True)
         )
+        print(f'aggregate feat ensemble, input feat len {total_feat_len}, hidden size {hidden_len}')
 
-    def forward(self, inputs):
+    def forward(self, inputs, return_feats=False):
         assert len(self.components) == len(inputs)
 
         feats = []
@@ -168,7 +169,11 @@ class AggregateFeatEnsemble(nn.Module):
             _, feat = model(input, return_feat=True)
             feats.append(feat)
 
-        return self.nn(torch.cat(feats, dim=1))
+        pred = self.nn(torch.cat(feats, dim=1))
+
+        if return_feats:
+            return pred, feats
+        return pred
 
 
 class EnsembleClassifier(nn.Module):
