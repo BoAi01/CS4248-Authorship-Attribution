@@ -1,7 +1,7 @@
 # CS4248-Authorship-Attribution
 
 ## Run the code
-To understand the relavant arguments, see `main.py`. One example run:
+To understand all relavant command line arguments, see `main.py`. One example run: </p>
 ```python main.py --dataset ccat50 --id 0 --tqdm True```
 
 ## Env setup
