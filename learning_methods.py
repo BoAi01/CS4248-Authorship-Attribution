@@ -438,7 +438,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
         final_test_acc = test_acc.avg
 
         if test_acc.avg:
-            save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}_e{epoch}.pt', model)
+            save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
         best_acc = max(best_acc, test_acc.avg)
 
     # test
@@ -452,7 +452,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     #         test_acc_2.update((pred.argmax(1) == y).sum().item() / len(y))
 
     # save checkpoint
-    save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}_final.pt', model)
+    save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_finale{epoch}.pt', model)
 
     print(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
           f'Final test acc {test_acc_2.avg}')
