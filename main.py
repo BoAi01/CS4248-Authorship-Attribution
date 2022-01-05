@@ -39,6 +39,13 @@ if __name__ == '__main__':
         'ccat50': 50
     }
 
+    # parse args
+    args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    source = args.dataset
+    num_authors = args.authors if args.authors is not None else default_num_authors[args.dataset]
+    print(' '.join(f'{k}={v}' for k, v in vars(args).items()))  # print all args
+
     # masked classes
     if args.authors == 50:
         mask_classes = {
@@ -52,13 +59,6 @@ if __name__ == '__main__':
             'imdb62': [],
             'enron': []
         }
-
-    # parse args
-    args = parser.parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    source = args.dataset
-    num_authors = args.authors if args.authors is not None else default_num_authors[args.dataset]
-    print(' '.join(f'{k}={v}' for k, v in vars(args).items()))  # print all args
 
     # Load data and remove emails containing the sender's name
     df = load_dataset_dataframe(source)
