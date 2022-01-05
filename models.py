@@ -161,19 +161,26 @@ class AggregateFeatEnsemble(nn.Module):
         )
         print(f'aggregate feat ensemble, input feat len {total_feat_len}, hidden size {hidden_len}')
 
-    def forward(self, inputs, return_feats=False):
+    def forward(self, inputs, return_feats=False, return_preds=False):
         assert len(self.components) == len(inputs)
 
-        feats = []
+        preds, feats = [], []
         for model, input in zip(self.components, inputs):
-            _, feat = model(input, return_feat=True)
+            pred, feat = model(input, return_feat=True)
+            preds.append(pred)
             feats.append(feat)
 
         pred = self.nn(torch.cat(feats, dim=1))
 
+        out = [pred]
         if return_feats:
-            return pred, feats
-        return pred
+            out.append(feats)
+        if return_preds:
+            out.append(preds)
+        return out
+
+    # def forward(self, feats):
+    #     return self.nn(feats)
 
 
 class EnsembleClassifier(nn.Module):

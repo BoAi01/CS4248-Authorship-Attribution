@@ -69,24 +69,24 @@ if __name__ == '__main__':
     # train an ensemble
     train_ensemble(nlp_train, nlp_test,
                 BertClassiferHyperparams( # bert
-                    mlp_size=512,
+                    mlp_size=256,
                     token_len=256,
                     embed_len=768
                 ),
                 BertClassiferHyperparams( # deberta
-                    mlp_size=512,
-                    token_len=372,
+                    mlp_size=256,
+                    token_len=256,  # 372
                     embed_len=768
                 ),
                 BertClassiferHyperparams( # roberta
-                    mlp_size=512,
+                    mlp_size=256,
                     token_len=256,
                     embed_len=768
                 ),
                 BertClassiferHyperparams( # gpt2
-                    mlp_size=512,
+                    mlp_size=256,
                     token_len=256,
                     embed_len=768
                 ),
-                num_epochs=args.epochs, base_bs=1, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=num_authors, # tune - parameters for ensemble final layer LR
+                num_epochs=args.epochs, base_bs=2, base_lr=1e-5, mlp_size=256, dropout=0.2, num_authors=num_authors, # tune - parameters for ensemble final layer LR
                 ensemble_type=args.ensem_type)    #"simple", "fixed", "dynamic", "aggregate"
