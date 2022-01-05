@@ -28,6 +28,10 @@ from transformers import BertTokenizer, BertModel, DebertaTokenizer, DebertaMode
     GPT2Tokenizer, GPT2Model
 
 import logging
+from models import LogisticRegression
+from dataset import BertDataset
+from models import BertClassifier
+
 
 ckpt_dir = 'exp_data'
 
@@ -249,15 +253,9 @@ def train_ensemble(nlp_train, nlp_test,
     return final_test_acc
 
 
-def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, model_name='microsoft/deberta-base',
-               embed_len=768,
-               id=None):
-    print("#####")
-    print("Training BERT")
-    from models import LogisticRegression
-    from dataset import BertDataset
-    from models import BertClassifier
-
+def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epochs, base_bs, base_lr,
+               mask_classes, coefficient, num_authors):
+    print(f'mask classes = {mask_classes}')
     tokenizer, extractor = None, None
     if 'bert-base' in model_name:
         from transformers import BertTokenizer, BertModel
@@ -289,18 +287,18 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     else:
         raise NotImplementedError(f"model {model_name} not implemented")
 
-    # freeze extractor
+    # update extractor
     for param in extractor.parameters():
         param.requires_grad = True
 
     # business logic
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
     val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
-    test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
+    # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    num_epochs, base_lr, base_bs, ngpus, dropout = 5, 1e-5, 1, torch.cuda.device_count(), 0.35
-    num_tokens, hidden_dim, out_dim = 256, 512, max(test_y) + 1
+    ngpus, dropout = torch.cuda.device_count(), 0.35
+    num_tokens, hidden_dim, out_dim = 256, 512, num_authors
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
     # model.load_state_dict(torch.load("0_deberta-base_coe1.0")) #load trained model
     model = nn.DataParallel(model).cuda()
@@ -312,9 +310,9 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
 
     train_set = BertDataset(train_x, train_y, tokenizer, num_tokens)
     val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
-    test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
+    # test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
 
-    coefficient, temperature, sample_unit_size = 1.0, 0.1, 2
+    temperature, sample_unit_size = 0.1, 2
     print(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
     logging.info(f'coefficient, temperature, sample_unit_size = {coefficient, temperature, sample_unit_size}')
 
@@ -323,13 +321,14 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
                            f'{id}_{model_name.split("/")[-1]}_coe{coefficient}_temp{temperature}_unit{sample_unit_size}_epoch{num_epochs}')
     writer = SummaryWriter(os.path.join(exp_dir, 'board'))
 
+    # load the training data
     train_sampler = TrainSamplerMultiClassUnit(train_set, sample_unit_size=sample_unit_size)
     train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, sampler=train_sampler, shuffle=False,
                               num_workers=4 * ngpus, pin_memory=True, drop_last=True)
     val_loader = DataLoader(val_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
                             pin_memory=True, drop_last=True)
-    test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
-                             pin_memory=True, drop_last=True)
+    # test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
+    #                          pin_memory=True, drop_last=True)
 
     # training loop
     final_test_acc = None
@@ -338,38 +337,23 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
     best_acc = -1
 
     for epoch in range(num_epochs):
-        # if epoch == num_epochs - 1:
-        #     train_loader = DataLoader(train_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=12 * ngpus,
-        #                               pin_memory=True)
         train_acc = AverageMeter()
         train_loss = AverageMeter()
         train_loss_1 = AverageMeter()
         train_loss_2 = AverageMeter()
 
-        # bad_classes = [16, 25, 39, 44, 48]
-        bad_classes = [50]
-
         model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=not tqdm_on)
         for i, (x1, x2, x3, y) in enumerate(pg):  # for x1, x2, x3, y in train_set:
             x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred, feats = model(x, return_contra_feat=True)
-
-            # generate the mask
-            mask = y.clone().cpu().apply_(lambda x: x not in bad_classes).type(torch.bool).cuda()
-            pred = pred[mask]
-            y_2 = y[mask]
+            pred, feats = model(x, return_feat=True)
 
             # classification loss
-            loss_1 = criterion(pred, y_2.long())
+            loss_1 = criterion(pred, y.long())
 
             # generate the mask
-            # mask = y.clone().cpu().apply_(lambda x: x not in bad_classes).type(torch.bool).cuda()
-            # feats = feats[mask]
-            # y_2 = y[mask]
-
-            # import pdb
-            # pdb.set_trace()
+            mask = y.clone().cpu().apply_(lambda x: x not in mask_classes).type(torch.bool).cuda()
+            feats, pred, y = feats[mask], pred[mask], y[mask]
 
             # contrastive learning
             sim_matrix = compute_sim_matrix(feats)
@@ -416,7 +400,7 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
             test_loss = AverageMeter()
             for i, (x1, x2, x3, y) in enumerate(pg):
                 x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-                pred, feats = model(x, return_contra_feat=True)
+                pred, feats = model(x, return_feat=True)
 
                 # classification
                 loss_1 = criterion(pred, y.long())
@@ -453,29 +437,28 @@ def train_bert(nlp_train, nlp_val, nlp_test, tqdm_on, return_features=True, mode
         logging.info(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
+        if test_acc.avg:
+            save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}_e{epoch}.pt', model)
         best_acc = max(best_acc, test_acc.avg)
 
     # test
-    model.eval()
-    pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
-    with torch.no_grad():
-        test_acc_2 = AverageMeter()
-        for i, (x1, x2, x3, y) in enumerate(pg):
-            x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
-            pred, feats = model(x, return_feat=True)
-            test_acc_2.update((pred.argmax(1) == y).sum().item() / len(y))
+    # model.eval()
+    # pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
+    # with torch.no_grad():
+    #     test_acc_2 = AverageMeter()
+    #     for i, (x1, x2, x3, y) in enumerate(pg):
+    #         x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
+    #         pred, feats = model(x, return_feat=True)
+    #         test_acc_2.update((pred.argmax(1) == y).sum().item() / len(y))
 
     # save checkpoint
-    save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}.pt', model)
+    save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_test{test_acc_2.avg:.5f}_final.pt', model)
 
     print(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
           f'Final test acc {test_acc_2.avg}')
     logging.info(
         f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
         f'Final test acc {test_acc_2.avg}')
-
-    del model
-    del train_loader, val_loader
 
     if return_features:
         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
