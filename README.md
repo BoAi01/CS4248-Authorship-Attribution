@@ -1,5 +1,9 @@
 # CS4248-Authorship-Attribution
 
+## Run the code
+To understand all relavant command line arguments, see `main.py`. One example run: </p>
+```python main.py --dataset ccat50 --id 0 --tqdm True```
+
 ## Env setup
 PyTorch needs to be compiled with the correct CUDA version. Example for CUDA 11: </p>
 ```conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch ``` </p>
