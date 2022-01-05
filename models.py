@@ -177,7 +177,10 @@ class AggregateFeatEnsemble(nn.Module):
             out.append(feats)
         if return_preds:
             out.append(preds)
-        return out
+        if len(out) == 1:
+            return out[0]
+        else:
+            return out
 
     # def forward(self, feats):
     #     return self.nn(feats)
