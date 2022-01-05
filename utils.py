@@ -457,18 +457,33 @@ def build_train_test(df, source, limit, per_author=None):
 
     if source == 'ccat50':
          sub_df = sub_df[
-        ['From', 'content', 'train', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
-         "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
-         "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
-         "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
-         "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"]]
+             [
+                 'From', 'content', 'train', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w",
+                  "per_digit", "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k",
+                 "f_l", "f_m", "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y",
+                 "f_z", "f_0", "f_1", "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1",
+                 "f_e_2", "f_e_3", "f_e_4", "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"
+             ]
+        ]
+    elif source == 'enron':
+        sub_df = sub_df[
+            [
+                'f_c', 'f_3', 'f_g', 'f_e', 'f_8', 'f_r', 'f_f', 'content', 'f_4', 'avg_len', 'f_p', 'f_s', 'f_q',
+                'f_1', 'f_y', 'f_0', 'per_digit', 'f_n', 'f_i', 'richness', 'f_j', 'num_short_w', 'f_k',
+                'f_7', 'f_b', 'f_6', 'content_tfidf', 'f_a', 'f_m', 'len_words', 'len_text', 'f_x', 'f_h', 'f_9',
+                'f_t', 'f_u', 'f_l', 'f_o', 'From', 'f_d', 'f_w', 'f_2', 'per_cap', 'f_v', 'f_z', 'f_5'
+            ]
+        ]
     else:
         sub_df = sub_df[
-            ['From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
-            "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
-            "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
-            "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
-            "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"]]
+            [
+                'From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
+                "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
+                "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
+                "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
+                "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness"
+            ]
+        ]
     sub_df = sub_df.dropna()
 
     text = " ".join(sub_df['content'].values)
@@ -486,32 +501,41 @@ def build_train_test(df, source, limit, per_author=None):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-    if source == 'ccat50':
-        full_train = sub_df[sub_df["train"] == 1]
-        train_valid = train_test_split(full_train[['content', 'Target']], test_size=0.2, stratify=full_train['Target'],
-                                    random_state=0)
-        ind_train = list(train_valid[0].index)
-        nlp_train = full_train.loc[ind_train]
-        ind_val = list(train_valid[1].index)
-        nlp_val = full_train.loc[ind_val]
+    # if source == 'ccat50':
+    #     full_train = sub_df[sub_df["train"] == 1]
+    #     train_valid = train_test_split(full_train[['content', 'Target']], test_size=0.2, stratify=full_train['Target'],
+    #                                 random_state=0)
+    #     ind_train = list(train_valid[0].index)
+    #     nlp_train = full_train.loc[ind_train]
+    #     ind_val = list(train_valid[1].index)
+    #     nlp_val = full_train.loc[ind_val]
+    #
+    #     full_test = sub_df[sub_df["train"] == 0]
+    #     nlp_test = full_test[['content', 'Target']]
+    # else:
+    #
+    #     train_unseen = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'],
+    #                                 random_state=0)
+    #     ind_train = list(train_unseen[0].index)
+    #     nlp_train = sub_df.loc[ind_train]
+    #
+    #     val_test = train_test_split(nlp_train[['content', 'Target']], test_size=0.5, stratify=nlp_train['Target'],
+    #                             random_state=0)
+    #     ind_val = list(val_test[0].index)
+    #     ind_test = list(val_test[1].index)
+    #     nlp_val = sub_df.loc[ind_val]
+    #     nlp_test = sub_df.loc[ind_test]
 
-        full_test = sub_df[sub_df["train"] == 0]
-        nlp_test = full_test[['content', 'Target']]
-    else:
+    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=0)
+    ind_train = list(ind[0].index)
+    ind_test = list(ind[1].index)
 
-        train_unseen = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'],
-                                    random_state=0)
-        ind_train = list(train_unseen[0].index)
-        nlp_train = sub_df.loc[ind_train]
+    nlp_train = sub_df.loc[ind_train]
+    nlp_test = sub_df.loc[ind_test]
 
-        val_test = train_test_split(nlp_train[['content', 'Target']], test_size=0.5, stratify=nlp_train['Target'],
-                                random_state=0)
-        ind_val = list(val_test[0].index)
-        ind_test = list(val_test[1].index)
-        nlp_val = sub_df.loc[ind_val]
-        nlp_test = sub_df.loc[ind_test]
+    return nlp_train, nlp_test, list_bigram, list_trigram
 
-    return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
+    # return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
 
 
 class AverageMeter(object):
