@@ -47,16 +47,32 @@ if __name__ == '__main__':
     print(' '.join(f'{k}={v}' for k, v in vars(args).items()))  # print all args
 
     # masked classes
-    if args.authors == 50:
+    if args.authors == 100:
+        mask_classes = {
+            'blog': [],
+            'imdb62': [],
+            'imdb':[8, 22, 72],
+            'enron': []
+        }
+    elif args.authors == 50:
         mask_classes = {
             'blog': [3, 16, 25, 26, 39, 44, 46, 48],
             'imdb62': [],
+            'imdb':[],
             'enron': []
         }
     elif args.authors == 10:
         mask_classes = {
+            'blog': [3, 5, 6, 9],
+            'imdb62': [],
+            'imdb':[],
+            'enron': []
+        }
+    else:
+        mask_classes = {
             'blog': [],
             'imdb62': [],
+            'imdb':[],
             'enron': []
         }
 
@@ -111,4 +127,5 @@ if __name__ == '__main__':
                     ensemble_type=args.ensem_type)    #"simple", "fixed", "dynamic", "aggregate"
     else:
         train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
-                   mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=args.authors)
+                   mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
+
