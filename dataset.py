@@ -27,14 +27,14 @@ class BertDataset(Dataset):
 
     def tokenize(self, x):
         dic = self.tokenizer.batch_encode_plus(
-                    [x],        # input must be a list
-                    max_length=self.length,
-                    padding='max_length',
-                    truncation=True,
-                    return_token_type_ids=True,
-                    return_tensors="pt"
-                )
-        return [x[0] for x in dic.values()]     # get rid of the first dim
+            [x],  # input must be a list
+            max_length=self.length,
+            padding='max_length',
+            truncation=True,
+            return_token_type_ids=True,
+            return_tensors="pt"
+        )
+        return [x[0] for x in dic.values()]  # get rid of the first dim
 
     def __getitem__(self, idx):
         if idx not in self.tokens_cache:
@@ -249,9 +249,10 @@ class EnsembleDataset(Dataset):
         self.x_char = x_char
         self.x_bert = x_bert
         self.y = y
-    
+
     def __getitem__(self, idx):
-        return self.x_style[idx], self.x_char[idx], torch.tensor(self.x_bert['input_ids'][idx]), torch.tensor(self.x_bert['attention_mask'][idx]), self.y[idx]
+        return self.x_style[idx], self.x_char[idx], torch.tensor(self.x_bert['input_ids'][idx]), \
+               torch.tensor(self.x_bert['attention_mask'][idx]), self.y[idx]
 
     def __len__(self):
         return len(self.y)
@@ -268,20 +269,20 @@ class TransformerEnsembleDataset(Dataset):
 
     def tokenize(self, x, i):
         dic = self.tokenizers[i].batch_encode_plus(
-                    batch_text_or_text_pairs=[x],        # input must be a list
-                    max_length=self.lengths[i],
-                    padding='max_length',
-                    truncation=True,
-                    return_token_type_ids=True,
-                    return_tensors="pt"
-                )
-        return [x[0] for x in dic.values()]     # get rid of the first dim
-    
+            batch_text_or_text_pairs=[x],  # input must be a list
+            max_length=self.lengths[i],
+            padding='max_length',
+            truncation=True,
+            return_token_type_ids=True,
+            return_tensors="pt"
+        )
+        return [x[0] for x in dic.values()]  # get rid of the first dim
+
     def __getitem__(self, idx):
         if idx not in self.caches[0]:
             for i in range(len(self.tokenizers)):
                 self.caches[i][idx] = self.tokenize(self.x[idx], i)
-        
+
         return [self.caches[i][idx] for i in range(len(self.tokenizers))], self.y[idx]
 
     def __len__(self):

@@ -16,7 +16,7 @@ torch.manual_seed(0)
 
 
 if __name__ == '__main__':
-    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50']
+    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50', 'ccat10']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training', choices=datasets)
     parser.add_argument('--id', type=str, help='the id of the experiment')
@@ -36,7 +36,8 @@ if __name__ == '__main__':
         'enron': 50,
         'imdb': 100,
         'blog': 50,
-        'ccat50': 50
+        'ccat50': 50,
+        'ccat10': 10
     }
 
     # parse args
@@ -51,7 +52,7 @@ if __name__ == '__main__':
         mask_classes = {
             'blog': [],
             'imdb62': [],
-            'imdb':[8, 22, 72],
+            'imdb': [8, 22, 72],
             'enron': []
         }
     elif args.authors == 50:
@@ -65,15 +66,18 @@ if __name__ == '__main__':
         mask_classes = {
             'blog': [3, 5, 6, 9],
             'imdb62': [],
-            'imdb':[],
-            'enron': []
+            'imdb': [],
+            'enron': [],
+            'ccat10': []
         }
     else:
         mask_classes = {
             'blog': [],
-            'imdb62': [],
-            'imdb':[],
-            'enron': []
+            'imdb62': [1,2,16,18,23],
+            'imdb': [],
+            'enron': [],
+            'ccat10': [],
+            'ccat50': []
         }
 
     # Load data and remove emails containing the sender's name
@@ -92,7 +96,7 @@ if __name__ == '__main__':
                         format='%(levelname)s: %(asctime)s %(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S')
 
-    limit = args.authors
+    limit = num_authors
     print("Number of authors: ", limit)
     logging.info("Number of authors: " + str(limit))
 

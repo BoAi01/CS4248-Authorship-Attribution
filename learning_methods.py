@@ -32,7 +32,6 @@ from models import LogisticRegression
 from dataset import BertDataset
 from models import BertClassifier
 
-
 ckpt_dir = 'exp_data'
 
 
@@ -87,8 +86,8 @@ def train_ensemble(nlp_train, nlp_test,
             param.requires_grad = True
 
     bertModel = BertClassifier(bertExtractor,
-        LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
-            bert_hyperparams.mlp_size, num_authors, dropout=0.2))
+                               LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
+                                                  bert_hyperparams.mlp_size, num_authors, dropout=0.2))
     debertaModel = BertClassifier(debertaExtractor,
                                   LogisticRegression(deberta_hyperparams.embed_len * deberta_hyperparams.token_len,
                                                      deberta_hyperparams.mlp_size, num_authors, dropout=0.2))
@@ -131,7 +130,7 @@ def train_ensemble(nlp_train, nlp_test,
 
     ensembleModel = DynamicWeightEnsemble([bertModel, debertaModel, robertaModel],
                                           768 * (
-                                                      bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len),
+                                                  bert_hyperparams.token_len + deberta_hyperparams.token_len + roberta_hyperparams.token_len + gpt2_hyperparams.token_len),
                                           hidden_len=mlp_size) \
         if "dynamic" in ensemble_type else \
         AggregateFeatEnsemble([bertModel, debertaModel],  # , robertaModel
@@ -289,7 +288,13 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
     # update extractor
     for param in extractor.parameters():
-        param.requires_grad = True
+        param.requires_grad = False
+    # print([k for k, v in list(extractor.named_parameters())])
+    # import pdb
+    # pdb.set_trace()
+    # for i in range(8, 12):
+    #    for param in extractor.encoder.layer[i].parameters():
+    #        param.requires_grad = False
 
     # business logic
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
@@ -297,10 +302,11 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    ngpus, dropout = torch.cuda.device_count(), 0.35
+    ngpus, dropout = torch.cuda.device_count(), 0.6
     num_tokens, hidden_dim, out_dim = 256, 512, num_authors
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
-    # model.load_state_dict(torch.load("0_deberta-base_coe1.0")) #load trained model
+
+    # model.load_state_dict(torch.load("1b.pt")) #load trained model
     model = nn.DataParallel(model).cuda()
 
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
@@ -354,6 +360,8 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
             # generate the mask
             mask = y.clone().cpu().apply_(lambda x: x not in mask_classes).type(torch.bool).cuda()
             feats, pred, y = feats[mask], pred[mask], y[mask]
+            if len(y) == 0:
+                continue
 
             # contrastive learning
             sim_matrix = compute_sim_matrix(feats)
@@ -438,10 +446,43 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
         final_test_acc = test_acc.avg
 
         if test_acc.avg:
-            save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
+            if test_acc.avg >= best_acc:
+                cur_models = os.listdir(exp_dir)
+                for cur_model in cur_models:
+                    if cur_model.endswith(".pt"):
+                        os.remove(os.path.join(exp_dir, cur_model))
+                save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
         best_acc = max(best_acc, test_acc.avg)
 
-    # test
+    # test for predictions only
+    model.eval()
+    pg = tqdm(val_loader, leave=False, total=len(val_loader), disable=False)
+    output_list = torch.randn((6, 10)).cuda()
+    feature_list = torch.randn((6, 100)).cuda()
+    label_list = []
+    m = torch.nn.AvgPool2d((1, 2000), stride=(1, 1950))
+    with torch.no_grad():
+        test_acc_2 = AverageMeter()
+        for i, (x1, x2, x3, y) in enumerate(pg):
+            x, y = (x1.cuda(), x2.cuda(), x3.cuda()), y.cuda()
+            pred, feats = model(x, return_feat=True)
+            condensed_feats = m(feats.unsqueeze(0)).squeeze(0)
+            if i == 0:
+                output_list = pred
+                feature_list = condensed_feats
+                label_list = [y]
+            else:
+                output_list = torch.cat([output_list, pred], dim=0)
+                feature_list = torch.cat([feature_list, condensed_feats], dim=0)
+                label_list.append(y)
+
+    torch.save(output_list, "./exp_data/output_list_" + str(id) + ".pt")
+    torch.save(label_list, "./exp_data/label_list_" + str(id) + ".pt")
+    torch.save(feature_list, "./exp_data/feature_list_" + str(id) + ".pt")
+
+    #     import pdb
+    #     pdb.set_trace()
+
     # model.eval()
     # pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)
     # with torch.no_grad():
@@ -455,12 +496,12 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_finale{epoch}.pt', model)
 
     print(f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
-          f'Final test acc {test_acc_2.avg}')
+          f'Final test acc {final_test_acc}')
     logging.info(
         f'Training complete after {num_epochs} epochs. Final val acc = {final_test_acc}, best val acc = {best_acc}.'
-        f'Final test acc {test_acc_2.avg}')
+        f'Final test acc {final_test_acc}')
 
-    if return_features:
-        return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
+    #     if return_features:
+    #         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
 
     return final_test_acc, final_train_preds, final_test_preds
