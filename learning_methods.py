@@ -39,7 +39,7 @@ def train_ensemble(nlp_train, nlp_test,
                    bert_hyperparams: BertClassiferHyperparams, deberta_hyperparams: BertClassiferHyperparams,
                    roberta_hyperparams: BertClassiferHyperparams, gpt2_hyperparams: BertClassiferHyperparams,
                    num_epochs, base_bs=8, base_lr=1e-3, mlp_size=256, dropout=0.2, num_authors=5,
-                   ensemble_type="dynamic"):
+                   ensemble_type="dynamic", model_id=id):
     print("#####")
     print("Training Contrastive Ensemble")
 
@@ -49,7 +49,7 @@ def train_ensemble(nlp_train, nlp_test,
     out_dim = max(test_y) + 1
 
     bertTokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-    debertaTokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta-base')
+    debertaTokenizer = DebertaTokenizer.from_pretrained('microsoft/deberta')
     # robertaTokenizer = RobertaTokenizer.from_pretrained('roberta-base')
     # gpt2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     # gpt2Tokenizer.pad_token = gpt2Tokenizer.eos_token  # for gpt tokenizer only
@@ -88,9 +88,11 @@ def train_ensemble(nlp_train, nlp_test,
     bertModel = BertClassifier(bertExtractor,
                                LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
                                                   bert_hyperparams.mlp_size, num_authors, dropout=0.2))
+    bertModel.load_state_dict(torch.load("./exp_data/1b_bert-base-cased_coe1.0_temp0.1_unit2_epoch8/1b_val0.66041_e4.pt")) #load trained model
     debertaModel = BertClassifier(debertaExtractor,
                                   LogisticRegression(deberta_hyperparams.embed_len * deberta_hyperparams.token_len,
                                                      deberta_hyperparams.mlp_size, num_authors, dropout=0.2))
+    debertaModel.load_state_dict(torch.load("./exp_data/0c_deberta-base_coe1.0_temp0.1_unit2_epoch8/0c_val0.69859_e4.pt"))
     # robertaModel = BertClassifier(robertaExtractor,
     #     LogisticRegression(roberta_hyperparams.embed_len * roberta_hyperparams.token_len,
     #         roberta_hyperparams.mlp_size, num_authors, dropout=0.2))
@@ -102,6 +104,7 @@ def train_ensemble(nlp_train, nlp_test,
     #     # model = nn.DataParallel(model).cuda()
 
     final_test_acc = None
+    best_acc = -1
 
     # if "simple" in ensemble_type:
     #     ensembleModel = SimpleEnsemble([bertModel, debertaModel, robertaModel, gpt2Model])
@@ -179,12 +182,14 @@ def train_ensemble(nlp_train, nlp_test,
             pred, feats, preds = ensembleModel([x1, x2], return_feats=True, return_preds=True)  # x2, x3
             feats = torch.cat(feats, dim=0)
             ys = torch.cat([y, y], dim=0)
-
+#             feats = torch.cat(feats, dim=1)
+#             ys = y
             # loss 1
             loss_1 = criterion(pred, y.long())
 
             # contrastive learning
             sim_matrix = compute_sim_matrix(feats)
+#             sim_matrix = compute_sim_matrix(hidden_feat)
             target_matrix = compute_target_matrix(ys)
             loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature, ys)
 
@@ -192,6 +197,7 @@ def train_ensemble(nlp_train, nlp_test,
             loss_3 = 0.0
             for pred in preds:
                 loss_3 += criterion(pred, y.long())
+#             loss_3 = loss_2
 
             # total loss
             loss = loss_1 + coefficient * loss_2 + loss_3
@@ -214,6 +220,11 @@ def train_ensemble(nlp_train, nlp_test,
                 'train L': '{:.6f}'.format(train_loss.avg),
                 'epoch': '{:03d}'.format(epoch)
             })
+            
+        print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
+          'train L2 {:.6f}'.format(train_loss_2.avg), 'train L3 {:.6f}'.format(train_loss_3.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
+            
+        exp_dir = os.path.join(ckpt_dir, "ensemble")
 
         ensembleModel.eval()
         pg = tqdm(ensemble_test_loader, leave=False, total=len(ensemble_test_loader))
@@ -239,10 +250,19 @@ def train_ensemble(nlp_train, nlp_test,
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
+        if test_acc.avg:
+            if test_acc.avg >= best_acc:
+                cur_models = os.listdir(exp_dir)
+                for cur_model in cur_models:
+                    if cur_model.endswith(".pt"):
+                        os.remove(os.path.join(exp_dir, cur_model))
+                save_model(exp_dir, f'{model_id}_val{final_test_acc:.5f}_e{epoch}.pt', ensembleModel)
+        best_acc = max(best_acc, test_acc.avg)
+
         # save checkpoint
-        save_model(os.path.join(ckpt_dir, "ensemble"),
-                   f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
-                   ensembleModel)
+#         save_model(os.path.join(ckpt_dir, "ensemble"),
+#                    f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
+#                    ensembleModel)
 
         # for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
         #     del model
@@ -288,7 +308,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
     # update extractor
     for param in extractor.parameters():
-        param.requires_grad = False
+        param.requires_grad = True
     # print([k for k, v in list(extractor.named_parameters())])
     # import pdb
     # pdb.set_trace()
@@ -298,11 +318,12 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
     # business logic
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+   
     val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
     # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # training setup
-    ngpus, dropout = torch.cuda.device_count(), 0.6
+    ngpus, dropout = torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, num_authors
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
 
@@ -347,6 +368,9 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
         train_loss = AverageMeter()
         train_loss_1 = AverageMeter()
         train_loss_2 = AverageMeter()
+
+        # decay coefficient
+        # coefficient = coefficient - 1 / num_epochs
 
         model.train()
         pg = tqdm(train_loader, leave=False, total=len(train_loader), disable=not tqdm_on)
