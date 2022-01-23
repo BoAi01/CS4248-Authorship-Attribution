@@ -52,19 +52,19 @@ if __name__ == '__main__':
         mask_classes = {
             'blog': [],
             'imdb62': [],
-            'imdb': [8, 22, 72],
+            'imdb': [],
             'enron': []
         }
     elif args.authors == 50:
         mask_classes = {
-            'blog': [3, 16, 25, 26, 39, 44, 46, 48],
+            'blog': [],
             'imdb62': [],
             'imdb':[],
             'enron': []
         }
     elif args.authors == 10:
         mask_classes = {
-            'blog': [3, 5, 6, 9],
+            'blog': [],
             'imdb62': [],
             'imdb': [],
             'enron': [],
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     else:
         mask_classes = {
             'blog': [],
-            'imdb62': [1,2,16,18,23],
+            'imdb62': [],
             'imdb': [],
             'enron': [],
             'ccat10': [],
@@ -108,27 +108,27 @@ if __name__ == '__main__':
     if args.train_ensemble:
         train_ensemble(nlp_train, nlp_test,
                     BertClassiferHyperparams( # bert
-                        mlp_size=256,
+                        mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
                     BertClassiferHyperparams( # deberta
-                        mlp_size=256,
+                        mlp_size=512,
                         token_len=256,  # 372
                         embed_len=768
                     ),
                     BertClassiferHyperparams( # roberta
-                        mlp_size=256,
+                        mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
                     BertClassiferHyperparams( # gpt2
-                        mlp_size=256,
+                        mlp_size=512,
                         token_len=256,
                         embed_len=768
                     ),
                     num_epochs=args.epochs, base_bs=2, base_lr=1e-5, mlp_size=256, dropout=0.2, num_authors=num_authors, # tune - parameters for ensemble final layer LR
-                    ensemble_type=args.ensem_type)    #"simple", "fixed", "dynamic", "aggregate"
+                    ensemble_type=args.ensem_type, model_id=args.id)    #"simple", "fixed", "dynamic", "aggregate"
     else:
         train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
