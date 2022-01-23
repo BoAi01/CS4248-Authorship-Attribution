@@ -159,6 +159,13 @@ class AggregateFeatEnsemble(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_len, num_classes, bias=True)
         )
+#         self.nn2 = nn.Sequential(
+#             nn.Dropout(dropout),
+#             nn.Linear(total_feat_len, hidden_len, bias=True),
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True),
+#             nn.Dropout(dropout),
+#             nn.Linear(hidden_len, num_classes, bias=True)
+#         )
         print(f'aggregate feat ensemble, input feat len {total_feat_len}, hidden size {hidden_len}')
 
     def forward(self, inputs, return_feats=False, return_preds=False):
@@ -169,7 +176,9 @@ class AggregateFeatEnsemble(nn.Module):
             pred, feat = model(input, return_feat=True)
             preds.append(pred)
             feats.append(feat)
-
+            
+#         hidden_feat = self.nn(torch.cat(feats, dim=1))
+#         pred = self.nn2(hidden_feat)
         pred = self.nn(torch.cat(feats, dim=1))
 
         out = [pred]
