@@ -387,7 +387,8 @@ def load_dataset_dataframe(source):
         "blog": 'full_blog.csv',
         "ccat50": "ccat50-auth-index.csv",
         "ccat10": "ccat10-auth-index.csv",
-        "ntg": "all_with_punctuation.csv"
+        "ntg": "all_with_punctuation.csv",
+        "turing": "turing_AA_train_test.csv"
     }
 
     df = None
@@ -484,6 +485,9 @@ def load_dataset_dataframe(source):
                 "f_e_10", "f_e_11", "richness"]] = df['text'].parallel_apply(lambda x: extract_style(x))
             df.to_csv(feat_path)
 
+    else:
+        df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
+
     return df
 
 
@@ -533,6 +537,16 @@ def build_train_test(df, source, limit, per_author=None):
                 'f_t', 'f_u', 'f_l', 'f_o', 'From', 'f_d', 'f_w', 'f_2', 'per_cap', 'f_v', 'f_z', 'f_5'
             ]
         ]
+    elif source == 'turing':
+        sub_df = sub_df[
+            [
+                'From', 'content', 'content_tfidf', "avg_len", "len_text", "len_words", "num_short_w", "per_digit",
+                "per_cap", "f_a", "f_b", "f_c", "f_d", "f_e", "f_f", "f_g", "f_h", "f_i", "f_j", "f_k", "f_l", "f_m",
+                "f_n", "f_o", "f_p", "f_q", "f_r", "f_s", "f_t", "f_u", "f_v", "f_w", "f_x", "f_y", "f_z", "f_0", "f_1",
+                "f_2", "f_3", "f_4", "f_5", "f_6", "f_7", "f_8", "f_9", "f_e_0", "f_e_1", "f_e_2", "f_e_3", "f_e_4",
+                "f_e_5", "f_e_6", "f_e_7", "f_e_8", "f_e_9", "f_e_10", "f_e_11", "richness", "train"
+            ]
+        ]
     else:
         sub_df = sub_df[
             [
@@ -546,8 +560,8 @@ def build_train_test(df, source, limit, per_author=None):
     sub_df = sub_df.dropna()
 
     text = " ".join(sub_df['content'].values)
-    list_bigram = return_best_bi_grams(text)
-    list_trigram = return_best_tri_grams(text)
+    list_bigram = None       # return_best_bi_grams(text)
+    list_trigram = None      # return_best_tri_grams(text)
 
     print("Number of texts : ", len(sub_df))
 
@@ -560,7 +574,7 @@ def build_train_test(df, source, limit, per_author=None):
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
 
-    if source == 'ccat50' or source == 'ccat10':
+    if 'ccat' in source or source == 'turing':
         full_train = sub_df[sub_df["train"] == 1]
         nlp_train = full_train[['content', 'Target']]
 

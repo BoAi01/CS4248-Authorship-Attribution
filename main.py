@@ -16,7 +16,7 @@ torch.manual_seed(0)
 
 
 if __name__ == '__main__':
-    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50', 'ccat10', 'ntg']
+    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50', 'ccat10', 'ntg', 'turing']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training', choices=datasets)
     parser.add_argument('--id', type=str, help='the id of the experiment')
@@ -38,7 +38,8 @@ if __name__ == '__main__':
         'blog': 50,
         'ccat50': 50,
         'ccat10': 10,
-        'ntg': 9        # 2
+        'ntg': 9,        # 2
+        'turing': 20
     }
 
     # parse args
@@ -79,7 +80,8 @@ if __name__ == '__main__':
             'enron': [],
             'ccat10': [],
             'ccat50': [],
-            'ntg': []
+            'ntg': [],
+            'turing': []
         }
 
     # Load data and remove emails containing the sender's name

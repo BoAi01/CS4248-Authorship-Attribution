@@ -321,13 +321,13 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     #        param.requires_grad = False
 
     # business logic
-    # train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
-    # val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
+    train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
     # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # for ntg only, otherwise uncomment the above
-    train_x, train_y = nlp_train[0].tolist(), nlp_train[1].tolist()
-    val_x, val_y = nlp_val[0].tolist(), nlp_val[1].tolist()
+    # train_x, train_y = nlp_train[0].tolist(), nlp_train[1].tolist()
+    # val_x, val_y = nlp_val[0].tolist(), nlp_val[1].tolist()
 
     # training setup
     ngpus, dropout = torch.cuda.device_count(), 0.35
