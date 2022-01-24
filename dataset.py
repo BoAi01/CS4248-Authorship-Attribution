@@ -23,15 +23,17 @@ class BertDataset(Dataset):
         self.length = length
         self.x = x
 
+        # the below is buggy!
         # y = ['non-human' if x != 'human' else 'human' for x in y]
-        label_mapping, new_y = {}, []
-        for label in y:
-            if label not in label_mapping:
-                label_mapping[label] = len(label_mapping)
-            new_y.append(label_mapping[label])
-        print(label_mapping)
+        # label_mapping, new_y = {}, []
+        # for label in y:
+        #     if label not in label_mapping:
+        #         label_mapping[label] = len(label_mapping)
+        #     new_y.append(label_mapping[label])
+        # print(label_mapping)
+        # self.y = torch.tensor(new_y)
 
-        self.y = torch.tensor(new_y)
+        self.y = torch.tensor(y)
         self.tokens_cache = {}
 
     def tokenize(self, x):
