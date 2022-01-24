@@ -6,7 +6,7 @@ import random
 import warnings
 import logging
 from learning_methods import train_ensemble, train_bert
-from utils import load_dataset_dataframe, build_train_test
+from utils import load_dataset_dataframe, build_train_test, build_train_test_ntg
 from models import BertClassiferHyperparams
 
 
@@ -16,7 +16,7 @@ torch.manual_seed(0)
 
 
 if __name__ == '__main__':
-    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50', 'ccat10']
+    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50', 'ccat10', 'ntg']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training', choices=datasets)
     parser.add_argument('--id', type=str, help='the id of the experiment')
@@ -37,7 +37,8 @@ if __name__ == '__main__':
         'imdb': 100,
         'blog': 50,
         'ccat50': 50,
-        'ccat10': 10
+        'ccat10': 10,
+        'ntg': 9        # 2
     }
 
     # parse args
@@ -77,7 +78,8 @@ if __name__ == '__main__':
             'imdb': [],
             'enron': [],
             'ccat10': [],
-            'ccat50': []
+            'ccat50': [],
+            'ntg': []
         }
 
     # Load data and remove emails containing the sender's name
@@ -101,8 +103,12 @@ if __name__ == '__main__':
     logging.info("Number of authors: " + str(limit))
 
     # Select top N senders and build Train and Test
-    nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit,
-                                                                      per_author=args.samples_per_auth)
+    if source != 'ntg':
+        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit,
+                                                                          per_author=args.samples_per_auth)
+    else:
+        nlp_train, nlp_test, list_bigram, list_trigram = build_train_test_ntg(df, source, limit,
+                                                                              per_author=args.samples_per_auth)
 
     # train an ensemble
     if args.train_ensemble:
@@ -132,4 +138,3 @@ if __name__ == '__main__':
     else:
         train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
-

@@ -31,6 +31,7 @@ import logging
 from models import LogisticRegression
 from dataset import BertDataset
 from models import BertClassifier
+from sklearn.metrics import f1_score
 
 ckpt_dir = 'exp_data'
 
@@ -88,11 +89,13 @@ def train_ensemble(nlp_train, nlp_test,
     bertModel = BertClassifier(bertExtractor,
                                LogisticRegression(bert_hyperparams.embed_len * bert_hyperparams.token_len,
                                                   bert_hyperparams.mlp_size, num_authors, dropout=0.2))
-    bertModel.load_state_dict(torch.load("./exp_data/1b_bert-base-cased_coe1.0_temp0.1_unit2_epoch8/1b_val0.66041_e4.pt")) #load trained model
+    bertModel.load_state_dict(torch.load(
+        "./exp_data/1b_bert-base-cased_coe1.0_temp0.1_unit2_epoch8/1b_val0.66041_e4.pt"))  # load trained model
     debertaModel = BertClassifier(debertaExtractor,
                                   LogisticRegression(deberta_hyperparams.embed_len * deberta_hyperparams.token_len,
                                                      deberta_hyperparams.mlp_size, num_authors, dropout=0.2))
-    debertaModel.load_state_dict(torch.load("./exp_data/0c_deberta-base_coe1.0_temp0.1_unit2_epoch8/0c_val0.69859_e4.pt"))
+    debertaModel.load_state_dict(
+        torch.load("./exp_data/0c_deberta-base_coe1.0_temp0.1_unit2_epoch8/0c_val0.69859_e4.pt"))
     # robertaModel = BertClassifier(robertaExtractor,
     #     LogisticRegression(roberta_hyperparams.embed_len * roberta_hyperparams.token_len,
     #         roberta_hyperparams.mlp_size, num_authors, dropout=0.2))
@@ -182,14 +185,14 @@ def train_ensemble(nlp_train, nlp_test,
             pred, feats, preds = ensembleModel([x1, x2], return_feats=True, return_preds=True)  # x2, x3
             feats = torch.cat(feats, dim=0)
             ys = torch.cat([y, y], dim=0)
-#             feats = torch.cat(feats, dim=1)
-#             ys = y
+            #             feats = torch.cat(feats, dim=1)
+            #             ys = y
             # loss 1
             loss_1 = criterion(pred, y.long())
 
             # contrastive learning
             sim_matrix = compute_sim_matrix(feats)
-#             sim_matrix = compute_sim_matrix(hidden_feat)
+            #             sim_matrix = compute_sim_matrix(hidden_feat)
             target_matrix = compute_target_matrix(ys)
             loss_2 = contrastive_loss(sim_matrix, target_matrix, temperature, ys)
 
@@ -197,7 +200,7 @@ def train_ensemble(nlp_train, nlp_test,
             loss_3 = 0.0
             for pred in preds:
                 loss_3 += criterion(pred, y.long())
-#             loss_3 = loss_2
+            #             loss_3 = loss_2
 
             # total loss
             loss = loss_1 + coefficient * loss_2 + loss_3
@@ -220,10 +223,11 @@ def train_ensemble(nlp_train, nlp_test,
                 'train L': '{:.6f}'.format(train_loss.avg),
                 'epoch': '{:03d}'.format(epoch)
             })
-            
+
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
-          'train L2 {:.6f}'.format(train_loss_2.avg), 'train L3 {:.6f}'.format(train_loss_3.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
-            
+              'train L2 {:.6f}'.format(train_loss_2.avg), 'train L3 {:.6f}'.format(train_loss_3.avg),
+              'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
+
         exp_dir = os.path.join(ckpt_dir, "ensemble")
 
         ensembleModel.eval()
@@ -260,14 +264,14 @@ def train_ensemble(nlp_train, nlp_test,
         best_acc = max(best_acc, test_acc.avg)
 
         # save checkpoint
-#         save_model(os.path.join(ckpt_dir, "ensemble"),
-#                    f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
-#                    ensembleModel)
+    #         save_model(os.path.join(ckpt_dir, "ensemble"),
+    #                    f'{id}_{out_dim}auth_hid{mlp_size}_epoch{num_epochs}_lr{base_lr}_bs{base_bs}_drop{dropout}_acc{final_test_acc:.5f}.pt',
+    #                    ensembleModel)
 
-        # for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
-        #     del model
-        # del ensembleModel
-        # del ensemble_train_loader, ensemble_test_loader
+    # for model in [bertModel, debertaModel, robertaModel, gpt2Model]:
+    #     del model
+    # del ensembleModel
+    # del ensemble_train_loader, ensemble_test_loader
 
     return final_test_acc
 
@@ -317,17 +321,21 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     #        param.requires_grad = False
 
     # business logic
-    train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
-   
-    val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
+    # train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
+    # val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
     # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
+
+    # for ntg only, otherwise uncomment the above
+    train_x, train_y = nlp_train[0].tolist(), nlp_train[1].tolist()
+    val_x, val_y = nlp_val[0].tolist(), nlp_val[1].tolist()
 
     # training setup
     ngpus, dropout = torch.cuda.device_count(), 0.35
     num_tokens, hidden_dim, out_dim = 256, 512, num_authors
     model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
 
-    # model.load_state_dict(torch.load("1b.pt")) #load trained model
+    # model.load_state_dict(torch.load(
+    #     "/home/aibo/aa/aa3/exp_data/3b_s75B_bert-base-cased_coe1.0_temp0.1_unit2_epoch8/3b_s75B_val0.62372_e6.pt"))  # load trained model
     model = nn.DataParallel(model).cuda()
 
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
@@ -395,7 +403,8 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
             # total loss
             loss = loss_1 + coefficient * loss_2
 
-            train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+            # train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+            train_acc.update(f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
             train_loss.update(loss.item())
             train_loss_1.update(loss_1.item())
             train_loss_2.update(loss_2.item())
@@ -446,7 +455,9 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                 loss = loss_1 + coefficient * loss_2
 
                 # logger
-                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+                # test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+                test_acc.update(
+                    f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
                 test_loss.update(loss.item())
                 test_loss_1.update(loss_1.item())
                 test_loss_2.update(loss_2.item())
