@@ -487,6 +487,7 @@ def load_dataset_dataframe(source):
 
     else:
         df = pd.read_csv(os.path.join(dataset_path, dataset_file_name[source]))
+        df.sort_values(by=['train', 'From'], inplace=True, ascending=[False, True])
 
     return df
 
