@@ -22,6 +22,17 @@ class BertDataset(Dataset):
         self.tokenizer = tokenizer
         self.length = length
         self.x = x
+
+        # the below is buggy!
+        # y = ['non-human' if x != 'human' else 'human' for x in y]
+        # label_mapping, new_y = {}, []
+        # for label in y:
+        #     if label not in label_mapping:
+        #         label_mapping[label] = len(label_mapping)
+        #     new_y.append(label_mapping[label])
+        # print(label_mapping)
+        # self.y = torch.tensor(new_y)
+
         self.y = torch.tensor(y)
         self.tokens_cache = {}
 
@@ -37,6 +48,9 @@ class BertDataset(Dataset):
         return [x[0] for x in dic.values()]  # get rid of the first dim
 
     def __getitem__(self, idx):
+        int_idx = int(idx)
+        assert idx == int_idx
+        idx = int_idx
         if idx not in self.tokens_cache:
             self.tokens_cache[idx] = self.tokenize(self.x[idx])
         input_ids, token_type_ids, attention_mask = self.tokens_cache[idx]
