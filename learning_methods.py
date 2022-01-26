@@ -314,8 +314,6 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     for param in extractor.parameters():
         param.requires_grad = True
     # print([k for k, v in list(extractor.named_parameters())])
-    # import pdb
-    # pdb.set_trace()
     # for i in range(8, 12):
     #    for param in extractor.encoder.layer[i].parameters():
     #        param.requires_grad = False
@@ -403,8 +401,9 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
             # total loss
             loss = loss_1 + coefficient * loss_2
 
-            # train_acc.update((pred.argmax(1) == y).sum().item() / len(y))
-            train_acc.update(f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
+            acc = (pred.argmax(1) == y).sum().item() / len(y)
+            train_acc.update(acc)
+            # train_acc.update(f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
             train_loss.update(loss.item())
             train_loss_1.update(loss_1.item())
             train_loss_2.update(loss_2.item())
@@ -421,12 +420,19 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                 'epoch': '{:03d}'.format(epoch)
             })
 
+            # iteration logger
+            step = i + epoch * len(pg)
+            writer.add_scalar("train-iteration/L1", loss_1.item(), step)
+            writer.add_scalar("train-iteration/L2", loss_2.item(), step)
+            writer.add_scalar("train-iteration/L", loss.item(), step)
+            writer.add_scalar("train-iteration/acc", acc, step)
+
         print('train acc: {:.6f}'.format(train_acc.avg), 'train L1 {:.6f}'.format(train_loss_1.avg),
               'train L2 {:.6f}'.format(train_loss_2.avg), 'train L {:.6f}'.format(train_loss.avg), f'epoch {epoch}')
         logging.info(f'epoch {epoch}, train acc {train_acc.avg}, train L1 {train_loss_1.avg}, '
                      f'train L2 {train_loss_2.avg}, train L {train_loss.avg}')
 
-        # logger
+        # epoch logger
         writer.add_scalar("train/L1", train_loss_1.avg, epoch)
         writer.add_scalar("train/L2", train_loss_2.avg, epoch)
         writer.add_scalar("train/L", train_loss.avg, epoch)
@@ -455,9 +461,9 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                 loss = loss_1 + coefficient * loss_2
 
                 # logger
-                # test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
-                test_acc.update(
-                    f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
+                test_acc.update((pred.argmax(1) == y).sum().item() / len(y))
+                # test_acc.update(
+                #     f1_score(y.cpu().detach().numpy(), pred.argmax(1).cpu().detach().numpy(), average='macro'))
                 test_loss.update(loss.item())
                 test_loss_1.update(loss_1.item())
                 test_loss_2.update(loss_2.item())
@@ -480,14 +486,16 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
         logging.info(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         final_test_acc = test_acc.avg
 
-        if test_acc.avg:
-            if test_acc.avg >= best_acc:
-                cur_models = os.listdir(exp_dir)
-                for cur_model in cur_models:
-                    if cur_model.endswith(".pt"):
-                        os.remove(os.path.join(exp_dir, cur_model))
-                save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
-        best_acc = max(best_acc, test_acc.avg)
+        save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
+
+        # if test_acc.avg:
+        #     if test_acc.avg >= best_acc:
+        #         cur_models = os.listdir(exp_dir)
+        #         for cur_model in cur_models:
+        #             if cur_model.endswith(".pt"):
+        #                 os.remove(os.path.join(exp_dir, cur_model))
+        #         save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
+        # best_acc = max(best_acc, test_acc.avg)
 
     # test for predictions only
     model.eval()
@@ -514,9 +522,6 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     torch.save(output_list, "./exp_data/output_list_" + str(id) + ".pt")
     torch.save(label_list, "./exp_data/label_list_" + str(id) + ".pt")
     torch.save(feature_list, "./exp_data/feature_list_" + str(id) + ".pt")
-
-    #     import pdb
-    #     pdb.set_trace()
 
     # model.eval()
     # pg = tqdm(test_loader, leave=False, total=len(val_loader), disable=not tqdm_on)

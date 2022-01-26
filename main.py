@@ -61,7 +61,7 @@ if __name__ == '__main__':
         mask_classes = {
             'blog': [],
             'imdb62': [],
-            'imdb':[],
+            'imdb': [],
             'enron': []
         }
     elif args.authors == 10:
@@ -138,5 +138,5 @@ if __name__ == '__main__':
                     num_epochs=args.epochs, base_bs=2, base_lr=1e-5, mlp_size=256, dropout=0.2, num_authors=num_authors, # tune - parameters for ensemble final layer LR
                     ensemble_type=args.ensem_type, model_id=args.id)    #"simple", "fixed", "dynamic", "aggregate"
     else:
-        train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=10, base_lr=3e-5,
+        train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=7, base_lr=1e-5 / 2,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
