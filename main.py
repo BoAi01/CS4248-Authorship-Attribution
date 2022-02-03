@@ -61,7 +61,7 @@ if __name__ == '__main__':
         mask_classes = {
             'blog': [],
             'imdb62': [],
-            'imdb': [],
+            'imdb':[],
             'enron': []
         }
     elif args.authors == 10:
@@ -105,9 +105,12 @@ if __name__ == '__main__':
     logging.info("Number of authors: " + str(limit))
 
     # Select top N senders and build Train and Test
-    if source != 'ntg':
+    if 'blog' in source or 'enron' in source:
+        nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit,
+                                                                       per_author=args.samples_per_auth, seed=1)
+    elif source != 'ntg':
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit,
-                                                                          per_author=args.samples_per_auth)
+                                                                       per_author=args.samples_per_auth)
     else:
         nlp_train, nlp_test, list_bigram, list_trigram = build_train_test_ntg(df, source, limit,
                                                                               per_author=args.samples_per_auth)
@@ -138,5 +141,13 @@ if __name__ == '__main__':
                     num_epochs=args.epochs, base_bs=2, base_lr=1e-5, mlp_size=256, dropout=0.2, num_authors=num_authors, # tune - parameters for ensemble final layer LR
                     ensemble_type=args.ensem_type, model_id=args.id)    #"simple", "fixed", "dynamic", "aggregate"
     else:
-        train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=7, base_lr=1e-5 / 2,
+        if 'enron' in source:
+            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
+                   mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors, nlp_train_val=nlp_val, test_only=True)
+        elif 'blog' in source:
+            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
+                   mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors, nlp_train_val=nlp_val)
+        else:
+            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
+
