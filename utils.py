@@ -492,7 +492,7 @@ def load_dataset_dataframe(source):
     return df
 
 
-def build_train_test(df, source, limit, per_author=None):
+def build_train_test(df, source, limit, per_author=None, seed=None):
     # Select top N senders and build Train and Test
     if 'ccat' in source:
         list_spk = list(pd.DataFrame(df['From'].value_counts()).reset_index()['index'])
@@ -581,6 +581,23 @@ def build_train_test(df, source, limit, per_author=None):
 
         full_test = sub_df[sub_df["train"] == 0]
         nlp_test = full_test[['content', 'Target']]
+        num_words = 0
+        total_len = 0
+        chars = 0
+        content_list = sub_df['content'].tolist()
+        for cont in content_list:
+            total_len += len(cont)
+            words = cont.split(" ")
+            num_words += len(words)
+            for word in words:
+                chars += len(word)
+        avg_words = num_words / len(sub_df)
+        avg_len = total_len / len(sub_df)
+        avg_chars = chars / len(sub_df)
+        
+        
+        import pdb
+        pdb.set_trace()
 
         return nlp_train, nlp_test, list_bigram, list_trigram
 
@@ -597,18 +614,33 @@ def build_train_test(df, source, limit, per_author=None):
     #     ind_test = list(val_test[1].index)
     #     nlp_val = sub_df.loc[ind_val]
     #     nlp_test = sub_df.loc[ind_test]
+    
+    if 'blog' in source or 'enron' in source or 'imdb62' in source:
+        print("seed: " + str(seed))
+        if seed is None:
+            seed = 0
+        ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=seed)
+        ind_train = list(ind[0].index)
+        nlp_train = sub_df.loc[ind_train]
 
-    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=0)
+        val_test_sub_df = ind[1]
+        ind2 = train_test_split(val_test_sub_df[['content', 'Target']], test_size=0.5, stratify=val_test_sub_df['Target'], random_state=seed)
+        ind_val = list(ind2[0].index)
+        ind_test = list(ind2[1].index)
+        nlp_val = val_test_sub_df.loc[ind_val]
+        nlp_test = val_test_sub_df.loc[ind_test]
+        
+        return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
+
+    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=seed)
     ind_train = list(ind[0].index)
     ind_test = list(ind[1].index)
-
     nlp_train = sub_df.loc[ind_train]
     nlp_test = sub_df.loc[ind_test]
 
     return nlp_train, nlp_test, list_bigram, list_trigram
 
-    # return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
-
+    
 
 def build_train_test_ntg(df, source, limit, per_author=None):
     assert source == 'ntg'
@@ -669,3 +701,4 @@ def load_model_dic(model, ckpt_path, verbose=True, strict=True):
         print(f'Model loaded: {ckpt_path}')
 
     return model
+
