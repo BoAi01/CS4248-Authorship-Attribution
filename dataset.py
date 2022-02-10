@@ -17,11 +17,12 @@ class NumpyDataset(Dataset):
 
 
 class BertDataset(Dataset):
-    def __init__(self, x, y, tokenizer, length=128):
+    def __init__(self, x, y, tokenizer, length=128, return_idx=False):
         super(BertDataset, self).__init__()
         self.tokenizer = tokenizer
         self.length = length
         self.x = x
+        self.return_idx = return_idx
 
         # the below is buggy!
         # y = ['non-human' if x != 'human' else 'human' for x in y]
@@ -54,11 +55,12 @@ class BertDataset(Dataset):
         if idx not in self.tokens_cache:
             self.tokens_cache[idx] = self.tokenize(self.x[idx])
         input_ids, token_type_ids, attention_mask = self.tokens_cache[idx]
+        if self.return_idx:
+            return input_ids, token_type_ids, attention_mask, self.y[idx], idx, self.x[idx]
         return input_ids, token_type_ids, attention_mask, self.y[idx]
 
     def __len__(self):
         return len(self.y)
-
 
 class TrainSampler(Sampler):
     def __init__(self, dataset, batch_size, sim_ratio=0.5):

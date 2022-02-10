@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     # Select top N senders and build Train and Test
     # 8:1:1 train-val-test split
-    if 'blog' in source or 'enron' in source or 'imdb62' in source:
+    if 'blog' in source or 'enron' in source or 'imdb62' in source or 'turing' in source:
         nlp_train, nlp_val, nlp_test, list_bigram, list_trigram = build_train_test(df, source, limit,
                                                                        per_author=args.samples_per_auth, seed=0)
     elif source != 'ntg':
@@ -143,13 +143,15 @@ if __name__ == '__main__':
                     ensemble_type=args.ensem_type, model_id=args.id)    #"simple", "fixed", "dynamic", "aggregate"
     else:
 #         # for test only
-#         if 'enron' in source or 'imdb62' in source: 
+#         if 'enron' in source or 'imdb62' in source:
 #             train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
 #                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors, nlp_train_val=nlp_val, test_only=True)
         if 'blog' in source:
-            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
+            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=4, base_lr=1e-5,
+                   mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors, nlp_train_val=nlp_val)
+        elif 'turing' in source:
+            train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=7, base_lr=5e-6,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors, nlp_train_val=nlp_val)
         else:
             train_bert(nlp_train, nlp_test, args.tqdm, args.model, 768, args.id, args.epochs, base_bs=8, base_lr=1e-5,
                    mask_classes=mask_classes[args.dataset], coefficient=args.coe, num_authors=num_authors)
-
