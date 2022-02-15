@@ -388,7 +388,7 @@ def load_dataset_dataframe(source):
         "ccat50": "ccat50-auth-index.csv",
         "ccat10": "ccat10-auth-index.csv",
         "ntg": "all_with_punctuation.csv",
-        "turing": "turing_AA_train_test.csv"
+        "turing": "turing_ori_0208.csv"
     }
 
     df = None
@@ -492,7 +492,7 @@ def load_dataset_dataframe(source):
     return df
 
 
-def build_train_test(df, source, limit, per_author=None):
+def build_train_test(df, source, limit, per_author=None, seed=None):
     # Select top N senders and build Train and Test
     if 'ccat' in source:
         list_spk = list(pd.DataFrame(df['From'].value_counts()).reset_index()['index'])
@@ -561,8 +561,8 @@ def build_train_test(df, source, limit, per_author=None):
     sub_df = sub_df.dropna()
 
     text = " ".join(sub_df['content'].values)
-    list_bigram = None       # return_best_bi_grams(text)
-    list_trigram = None      # return_best_tri_grams(text)
+    list_bigram = None  # return_best_bi_grams(text)
+    list_trigram = None  # return_best_tri_grams(text)
 
     print("Number of texts : ", len(sub_df))
 
@@ -574,8 +574,7 @@ def build_train_test(df, source, limit, per_author=None):
         k += 1
 
     sub_df['Target'] = sub_df['From'].apply(lambda x: dict_nlp_enron[x])
-
-    if 'ccat' in source or source == 'turing':
+    if 'ccat' in source:
         full_train = sub_df[sub_df["train"] == 1]
         nlp_train = full_train[['content', 'Target']]
 
@@ -583,6 +582,56 @@ def build_train_test(df, source, limit, per_author=None):
         nlp_test = full_test[['content', 'Target']]
 
         return nlp_train, nlp_test, list_bigram, list_trigram
+
+    if source == 'turing':
+        perc = 0.75
+        print("Percentage: " + str(perc))
+        full_train = sub_df[sub_df["train"] == 1]
+        nlp_train = full_train[['content', 'Target']]
+
+        full_test = sub_df[sub_df["train"] == 0]
+        nlp_test = full_test[['content', 'Target']]
+
+        full_valid = sub_df[sub_df["train"] == 2]
+        nlp_val = full_valid[['content', 'Target']]
+
+        shrinked_train = nlp_train
+        shrinked_test = nlp_test
+        shrinked_val = nlp_val
+        for l in range(20):
+            part_train = nlp_train[nlp_train["Target"] == l]
+            part_train = part_train[:int(len(part_train) * perc)]
+            part_test = nlp_test[nlp_test["Target"] == l]
+            part_test = part_test[:int(len(part_test) * perc)]
+            part_val = nlp_val[nlp_val["Target"] == l]
+            part_val = part_val[:int(len(part_val) * perc)]
+            if l == 0:
+                shrinked_train = part_train
+                shrinked_test = part_test
+                shrinked_val = part_val
+            else:
+                shrinked_train = pd.concat([shrinked_train, part_train], axis=0)
+                shrinked_test = pd.concat([shrinked_test, part_test], axis=0)
+                shrinked_val = pd.concat([shrinked_val, part_val], axis=0)
+
+        #         num_words = 0
+        #         total_len = 0
+        #         chars = 0
+        #         content_list = sub_df['content'].tolist()
+        #         for cont in content_list:
+        #             total_len += len(cont)
+        #             words = cont.split(" ")
+        #             num_words += len(words)
+        #             for word in words:
+        #                 chars += len(word)
+        #         avg_words = num_words / len(sub_df)
+        #         avg_len = total_len / len(sub_df)
+        #         avg_chars = chars / len(sub_df)
+        print("shrinked_train: " + str(len(shrinked_train)))
+        print(len(shrinked_train) + len(shrinked_test) + len(shrinked_val))
+        print("/")
+        print(len(nlp_train) + len(nlp_test) + len(nlp_val))
+        return shrinked_train, shrinked_test, shrinked_val, list_bigram, list_trigram
 
     # else:
     #
@@ -598,16 +647,32 @@ def build_train_test(df, source, limit, per_author=None):
     #     nlp_val = sub_df.loc[ind_val]
     #     nlp_test = sub_df.loc[ind_test]
 
-    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=0)
+    if 'blog' in source or 'enron' in source or 'imdb62' in source:
+        print("seed: " + str(seed))
+        if seed is None:
+            seed = 0
+        ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'],
+                               random_state=seed)
+        ind_train = list(ind[0].index)
+        nlp_train = sub_df.loc[ind_train]
+
+        val_test_sub_df = ind[1]
+        ind2 = train_test_split(val_test_sub_df[['content', 'Target']], test_size=0.5,
+                                stratify=val_test_sub_df['Target'], random_state=seed)
+        ind_val = list(ind2[0].index)
+        ind_test = list(ind2[1].index)
+        nlp_val = val_test_sub_df.loc[ind_val]
+        nlp_test = val_test_sub_df.loc[ind_test]
+
+        return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
+
+    ind = train_test_split(sub_df[['content', 'Target']], test_size=0.2, stratify=sub_df['Target'], random_state=seed)
     ind_train = list(ind[0].index)
     ind_test = list(ind[1].index)
-
     nlp_train = sub_df.loc[ind_train]
     nlp_test = sub_df.loc[ind_test]
 
     return nlp_train, nlp_test, list_bigram, list_trigram
-
-    # return nlp_train, nlp_val, nlp_test, list_bigram, list_trigram
 
 
 def build_train_test_ntg(df, source, limit, per_author=None):
