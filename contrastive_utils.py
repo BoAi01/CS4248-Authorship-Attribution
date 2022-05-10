@@ -47,3 +47,4 @@ def contrastive_loss(pred_sim_matrix, target_matrix, temperature, labels):
 
     return F.kl_div(F.softmax(pred_sim_matrix/temperature).log(), F.softmax(target_matrix/temperature),
                     reduction="batchmean", log_target=False)
+
