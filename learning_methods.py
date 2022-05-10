@@ -319,13 +319,13 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     #        param.requires_grad = False
 
     # business logic
-
+    
     train_x, train_y = nlp_train['content'].tolist(), nlp_train['Target'].tolist()
     val_x, val_y = nlp_val['content'].tolist(), nlp_val['Target'].tolist()
-
+    
     if nlp_train_val is not None:
         train_val_x, train_val_y = nlp_train_val['content'].tolist(), nlp_train_val['Target'].tolist()
-
+   
     # test_x, test_y = nlp_test['content'].tolist(), nlp_test['Target'].tolist()
 
     # for ntg only, otherwise uncomment the above
@@ -334,11 +334,11 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
     # training setup
     ngpus, dropout = torch.cuda.device_count(), 0.35
-    num_tokens, hidden_dim, out_dim = 512, 512, num_authors
-    model = BertClassifier(extractor, LogisticRegression(embed_len * 1, hidden_dim, out_dim, dropout=dropout))
+    num_tokens, hidden_dim, out_dim = 256, 512, num_authors
+    model = BertClassifier(extractor, LogisticRegression(embed_len * num_tokens, hidden_dim, out_dim, dropout=dropout))
 
     # model.load_state_dict(torch.load(
-    #   "/home/aibo/aa/aa4/7e_val0.97666_e14.pt"))  # load trained model
+      #   "/home/aibo/aa/aa4/7e_val0.97666_e14.pt"))  # load trained model
     model = nn.DataParallel(model).cuda()
 
     optimizer = torch.optim.AdamW(params=model.parameters(), lr=base_lr * ngpus, weight_decay=3e-4)
@@ -348,7 +348,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
     train_set = BertDataset(train_x, train_y, tokenizer, num_tokens)
     val_set = BertDataset(val_x, val_y, tokenizer, num_tokens)
-
+    
     if nlp_train_val is not None:
         train_val_set = BertDataset(train_val_x, train_val_y, tokenizer, num_tokens)
     # test_set = BertDataset(test_x, test_y, tokenizer, num_tokens)
@@ -370,7 +370,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                             pin_memory=True, drop_last=True)
     if nlp_train_val is not None:
         train_val_loader = DataLoader(train_val_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
-                                      pin_memory=True, drop_last=True)
+                            pin_memory=True, drop_last=True)
     # test_loader = DataLoader(test_set, batch_size=base_bs * ngpus, shuffle=False, num_workers=4 * ngpus,
     #                          pin_memory=True, drop_last=True)
 
@@ -380,7 +380,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     train_feats, test_feats = [], []
     best_acc = -1
     best_tv_acc = -1
-
+    
     if test_only:
         print("This is only a test run")
         # test
@@ -413,7 +413,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                 test_loss.update(loss.item())
                 test_loss_1.update(loss_1.item())
                 test_loss_2.update(loss_2.item())
-
+                
         print(f'pure test acc {test_acc.avg}')
         logging.info(f'pure test acc {test_acc.avg}')
 
@@ -491,7 +491,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
             model.eval()
             pg = tqdm(train_val_loader, leave=False, total=len(train_val_loader), disable=not tqdm_on)
             with torch.no_grad():
-                tv_acc = AverageMeter()  # tv stands for train_val
+                tv_acc = AverageMeter() #tv stands for train_val
                 tv_loss_1 = AverageMeter()
                 tv_loss_2 = AverageMeter()
                 tv_loss = AverageMeter()
@@ -565,7 +565,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
             writer.add_scalar("tv/L2", tv_loss_2.avg, epoch)
             writer.add_scalar("tv/L", tv_loss.avg, epoch)
             writer.add_scalar("tv/acc", tv_acc.avg, epoch)
-
+        
         writer.add_scalar("test/L1", test_loss_1.avg, epoch)
         writer.add_scalar("test/L2", test_loss_2.avg, epoch)
         writer.add_scalar("test/L", test_loss.avg, epoch)
@@ -576,10 +576,10 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
 
         print(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
         logging.info(f'epoch {epoch}, train acc {train_acc.avg}, test acc {test_acc.avg}')
-
+        
         final_test_acc = test_acc.avg
 
-        #         save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
+#         save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
 
         if test_acc.avg:
             if test_acc.avg >= best_acc:
@@ -589,7 +589,7 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
                         os.remove(os.path.join(exp_dir, cur_model))
                 save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_e{epoch}.pt', model)
         best_acc = max(best_acc, test_acc.avg)
-
+        
         if nlp_train_val is not None:
             print(f'epoch {epoch}, train val acc {tv_acc.avg}')
             logging.info(f'epoch {epoch}, train val acc {tv_acc.avg}')
@@ -634,9 +634,8 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     # save checkpoint
     save_model(exp_dir, f'{id}_val{final_test_acc:.5f}_finale{epoch}.pt', model)
 
-    print(
-        f'Training complete after {num_epochs} epochs. Final val acc = {final_tv_acc}, best val acc = {best_tv_acc}, best test acc = {best_acc}.'
-        f'Final test acc {final_test_acc}')
+    print(f'Training complete after {num_epochs} epochs. Final val acc = {final_tv_acc}, best val acc = {best_tv_acc}, best test acc = {best_acc}.'
+          f'Final test acc {final_test_acc}')
     logging.info(
         f'Training complete after {num_epochs} epochs. Final val acc = {final_tv_acc}, best val acc = {best_tv_acc}, best test acc = {best_acc}.'
         f'Final test acc {final_test_acc}')
@@ -645,3 +644,4 @@ def train_bert(nlp_train, nlp_val, tqdm_on, model_name, embed_len, id, num_epoch
     #         return final_test_acc, final_train_preds, final_test_preds, train_feats, test_feats
 
     return final_test_acc, final_train_preds, final_test_preds
+
