@@ -22,7 +22,6 @@ class LogisticRegression(nn.Module):
             return out, x
         return out
 
-
 class MLP2Layer(nn.Module):
     def __init__(self, in_dim, hid_dim, out_dim, dropout=0):
         super().__init__()
@@ -55,14 +54,11 @@ class BertClassifier(nn.Module):
         # x is a tokenized input
         # feature = self.bert(input_ids=x[0], token_type_ids=x[1], attention_mask=x[2])
         feature = self.bert(input_ids=x[0], attention_mask=x[2])
-        out = self.fc(feature.pooler_output.flatten(1))  # not good for our task     # (BS, E)
-        # out = self.fc(feature.last_hidden_state.flatten(1))     # (BS, T, E)
-        # import pdb
-        # pdb.set_trace()
+        # out = self.fc(feature.pooler_output.flatten(1))       # not good for our task     # (BS, E)
+        out = self.fc(feature.last_hidden_state.flatten(1))     # (BS, T, E)
         if return_feat:
             return out, feature.last_hidden_state.flatten(1)
         return out
-
 
 @dataclass
 class BertClassiferHyperparams:
@@ -70,13 +66,12 @@ class BertClassiferHyperparams:
     token_len: int
     embed_len: int
 
-
 class SimpleEnsemble(nn.Module):
     """
     The simplest ensemble model, ie, averaging
     """
 
-    def __init__(self, components):  # components is a list of models
+    def __init__(self, components): # components is a list of models
         super(SimpleEnsemble, self).__init__()
         self.components = components
 
@@ -164,13 +159,13 @@ class AggregateFeatEnsemble(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_len, num_classes, bias=True)
         )
-        #         self.nn2 = nn.Sequential(
-        #             nn.Dropout(dropout),
-        #             nn.Linear(total_feat_len, hidden_len, bias=True),
-        #             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-        #             nn.Dropout(dropout),
-        #             nn.Linear(hidden_len, num_classes, bias=True)
-        #         )
+#         self.nn2 = nn.Sequential(
+#             nn.Dropout(dropout),
+#             nn.Linear(total_feat_len, hidden_len, bias=True),
+#             nn.LeakyReLU(negative_slope=0.2, inplace=True),
+#             nn.Dropout(dropout),
+#             nn.Linear(hidden_len, num_classes, bias=True)
+#         )
         print(f'aggregate feat ensemble, input feat len {total_feat_len}, hidden size {hidden_len}')
 
     def forward(self, inputs, return_feats=False, return_preds=False):
@@ -181,9 +176,9 @@ class AggregateFeatEnsemble(nn.Module):
             pred, feat = model(input, return_feat=True)
             preds.append(pred)
             feats.append(feat)
-
-        #         hidden_feat = self.nn(torch.cat(feats, dim=1))
-        #         pred = self.nn2(hidden_feat)
+            
+#         hidden_feat = self.nn(torch.cat(feats, dim=1))
+#         pred = self.nn2(hidden_feat)
         pred = self.nn(torch.cat(feats, dim=1))
 
         out = [pred]
@@ -214,7 +209,7 @@ class EnsembleClassifier(nn.Module):
     def forward(self, x, return_feat=False):
         # x is a tokenized input
         # print("ENS Forward")
-
+        
         stylePred = self.styleClassifier(x[0])
 
         charPred = self.charClassifier(x[1])
@@ -233,3 +228,4 @@ class EnsembleClassifier(nn.Module):
         if return_feat:
             return out, bertFeature
         return out
+
