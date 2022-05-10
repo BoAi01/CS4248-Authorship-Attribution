@@ -204,3 +204,4 @@ def train_tf_idf(nlp_train, nlp_test, num_authors=5):
                         num_epochs=num_epochs, base_lr=base_lr, base_bs=base_bs, model_name='tf_idf', out_dim=num_authors, dropout=dropout, hidden_dim=hidden_dim)
 
 
+
