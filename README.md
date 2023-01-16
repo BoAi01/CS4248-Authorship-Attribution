@@ -1,5 +1,9 @@
 # CS4248-Authorship-Attribution
 
+This is the course project of CS4248 Natural Language Processing at the National University of Singapore, instructed by Prof Hwee Tou Ng (AY2021/22). Our project was ranked the second highest in the cohort, but the repo is no longer under maintanance.
+
+If you are intersted in the authorship attribution, you are welcome to check out our publication out of this project. See [this repo](https://github.com/BoAi01/Contra-X) for more details. 
+
 ## Env setup
 PyTorch needs to be compiled with the correct CUDA version. Example for CUDA 11: </p>
 ```conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch ``` </p>
