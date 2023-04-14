@@ -1,42 +1,27 @@
-# General
+import argparse
+from train import run_iterations
+import os
+import torch
+import numpy
+import random
 
-# Visualization
-
-# Feature extraction approach
-import nltk
-
-nltk.download('stopwords')
-nltk.download('punkt')
-
-# Classification
-
-# BERT classifier
-# Installing a custom version of Simple Transformers
-# !git clone https://github.com/NVIDIA/apex
-# !pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./apex
-#!git init
-# !pip install --upgrade tqdm
-# !git remote add origin https://github.com/ThilinaRajapakse/simpletransformers.git
-# !git pull origin master
-# !pip install -r requirements-dev.txt
-# !pip install transformers
-# !pip install tensorboardX
-
-# !pip install simpletransformers
-
-# # Parallelize apply on Pandas
-# !pip install pandarallel
-from pandarallel import pandarallel
-pandarallel.initialize()
-
-# Evaluation
+random.seed(0)
+numpy.random.seed(0)
+torch.manual_seed(0)
 
 if __name__ == '__main__':
-    import argparse
-    from train import run_iterations
-
-    datasets = ['imdb62', 'enron', 'imdb', 'blog']
+    datasets = ['imdb62', 'enron', 'imdb', 'blog', 'ccat50']
     parser = argparse.ArgumentParser(description=f'Training models for datasets {datasets}')
     parser.add_argument('--dataset', type=str, help='the dataset used for training')
+    parser.add_argument('--id', type=int, help='the id of the experiment')
+    parser.add_argument('--gpu', type=str, help='the cuda devices used for training', default="0,1,2,3")
+    parser.add_argument('--tqdm', type=bool, help='whether tqdm is on', default=False)
+    parser.add_argument('--samples-per-author', type=int, help='number of samples per author', default=None)
+    parser.add_argument('--test', type=bool, help='whether test mode is on', default=False)
+
     args = parser.parse_args()
-    list_scores = run_iterations(source=args.dataset)
+    if args.samples_per_author is not None:
+        raise NotImplementedError("samples per author deprecated")
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    list_scores = run_iterations(source=args.dataset, per_author=args.samples_per_author, id=args.id, tqdm=args.tqdm)
